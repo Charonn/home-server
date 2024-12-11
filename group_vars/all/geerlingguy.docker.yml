@@ -1,0 +1,14 @@
+---
+
+# Geerlingguy Docker
+docker_edition: "ce"
+# Either use the updatable distribution version (default if docker_package is not set)
+#  or a pinned exact version as provided by the distribution.
+docker_package: "docker-{{ docker_edition }}"
+# Note: present -> will not update after install. latest -> will update and restart docker daemon
+docker_package_state: "latest"
+
+# We do not want the old binary. We use our own alias to redirect to the docker compose plugin
+docker_install_compose: false
+# We want the plugin
+docker_install_compose_plugin: true

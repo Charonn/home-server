@@ -1,0 +1,69 @@
+--- 
+- name: "Create config dir"
+  file:
+    path: "{{ traefik_path }}"
+    state: "directory"
+    mode: "0775"
+
+- name: Check if acme.json exists
+  stat:
+    path: "{{ traefik_path }}/acme.json" 
+  register: file_stat
+
+- name: Create empty acme.json
+  copy:
+    content: ""
+    dest: "{{ traefik_path }}/acme.json"
+    mode: '0600'  # Set file permissions to only be readable by the owner
+  when: not file_stat.stat.exists
+
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^traefik$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls
+  changed_when: docker_network_ls.stdout == ""
+
+- name: Create Docker network
+  command: docker network create traefik
+  when: docker_network_ls.stdout == ""
+
+- name: Deploy Traefik container
+  docker_container:
+    name: traefik
+    image: traefik:2.5
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "{{ traefik_path }}/acme.json:/acme.json"
+    command:
+      - "--api=true"
+      - "--api.dashboard=true"
+      - "--api.debug=true"
+      - "--log.level=info"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.address=:80"
+      - "--certificatesresolvers.letsencrypt.acme.email={{ traefik_email }}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      # - "--certificatesresolvers.letsencrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"
+    labels:
+      "traefik.enable": "true"
+      "traefik.http.routers.dashboard.rule": "Host(`{{ host }}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      "traefik.http.routers.dashboard.service": "api@internal"
+      "traefik.http.middlewares.auth.basicauth.users": "admin:$2y$05$g9W3GLMrWtQdjqfAJIgwk.Oc0w7ZbGpjhOA.I1h2xB.Bq7RKGmzpi"
+      "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme": "https"
+      "traefik.http.routers.dashboard.tls.certresolver": "letsencrypt"
+      "traefik.http.middlewares.traefik-stripprefix.stripprefix.prefixes": "/traefik"
+      "traefik.http.routers.dashboard.middlewares": "redirect-to-https@docker,auth,traefik-stripprefix"
+    log_options:
+      max-size: "15m"
+      max-file: "5"
+    log_driver: json-file
+    networks:
+      - name: traefik

@@ -1,0 +1,14 @@
+host: "{{ host_vault }}"
+
+noip_password: "{{ noip_password_vault }}"
+noip_user: "{{ noip_user_vault }}"
+noip_update_interval: "30m"
+noip_domains: "{{ host }}"
+
+mysql_root_password: "{{ mysql_root_password_vault }}"
+mysql_nextcloud_password: "{{ mysql_nextcloud_password_vault }}"
+
+redis_password: "{{ redis_password_vault }}"
+
+grafana_admin_password: "{{ grafana_admin_password_vault }}"
+ansible_python_interpreter: /usr/bin/python3

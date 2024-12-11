@@ -1,0 +1,145 @@
+---
+
+- name: Set timezone to Europe/Berlin
+  timezone:
+    name: Europe/Berlin
+
+- name: Create system groups
+  group:
+    name: "{{ item.name }}"
+    state: present
+  loop: "{{ system_groups }}"
+
+- name: Create system users
+  user:
+    name: "{{ item.name }}"
+    groups: "{{ item.groups }}"
+    state: "{{ item.state | default('present') }}"
+    # only relevant on `state: absent`
+    remove: "yes"
+  loop: "{{ system_users }}"
+
+- name: Create organic users
+  user:
+    name: "{{ item.name }}"
+    groups: "{{ item.groups }}"
+    shell: "{{ item.shell | default(omit) }}"
+    state: "{{ item.state | default('present') }}"
+    # only relevant on `state: absent`
+    remove: "yes"
+  loop: "{{ users }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Deploy public keys of organic users
+  authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ lookup('file', '{{ item.name }}.pub') }}"
+    state: present
+  loop: "{{ users }}"
+  when: item.state is undefined or item.state != "present"
+
+- name: Allow passwordless sudo
+  lineinfile:
+    path: /etc/sudoers.d/sudoers
+    create: true
+    line: '%sudo ALL=(ALL) NOPASSWD: ALL'
+    validate: '/usr/sbin/visudo -cf %s'
+    state: present
+
+- name: disable ssh password authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "#? ?PasswordAuthentication (yes|no)"
+    line: PasswordAuthentication yes
+  register: ssh_config
+
+- name: (Re)Start ssh
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+    name: ssh
+  when: ssh_config.changed
+   
+- name: apt ugrade
+  apt:
+    upgrade: yes
+
+- name: Install common software
+  apt:
+    name: "{{ packages }}"
+    update_cache: "true"
+  vars:
+    packages:
+      - htop
+      - nano
+      - tmux
+      - ranger
+      - git
+      - iotop
+      - iftop
+      - colordiff
+      - ncdu
+      - autorandr
+      - borgbackup
+      - coreutils
+      - curl
+      - dash
+      - ffmpeg
+      - fzf
+      - gcr
+      - git
+      - git-man
+      - gopass
+      - htop
+      - httpie
+      - icu-devtools
+      - iftop
+      - iio-sensor-proxy
+      - initramfs-tools
+      - initramfs-tools-bin
+      - initramfs-tools-core
+      - inputattach
+      - iotop
+      - iptables
+      - java-common
+      - javascript-common
+      - jq
+      - kitty
+      - kitty-doc
+      - kitty-terminfo
+      - klibc-utils
+      - kmod
+      - lm-sensors
+      - lnav
+      - mc
+      - mc-data
+      - meson
+      - mkisofs
+      - mysql-client
+      - mysql-client-8.0
+      - mysql-client-core-8.0
+      - mysql-common
+      - ncmpcpp
+      - net-tools
+      - netbase
+      - npm
+      - ntfs-3g
+      - parcellite
+      - polkitd
+      - powertop
+      - pv
+      - rclone
+      - rclone-browser
+      - rsync
+      - speedtest-cli
+      - thefuck
+      - thin-provisioning-tools
+      - tig
+      - tmux
+      - vim
+      - yelp
+      - yelp-xsl
+      - zsh
+      - zsh-common
+      - zstd

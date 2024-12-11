@@ -1,0 +1,76 @@
+---
+- name: Create base directory
+  file: 
+    path: "{{ paperless_host_path }}"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create consume directory
+  file: 
+    path: "{{ paperless_host_path }}/consume"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create data directory
+  file: 
+    path: "{{ paperless_host_path }}/data"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create export directory
+  file: 
+    path: "{{ paperless_host_path }}/export"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create media directory
+  file: 
+    path: "{{ paperless_host_path }}/media"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Ensure paperless container is present
+  tags: "paperless"
+  docker_container:
+    name: "paperless"
+    image: "ghcr.io/paperless-ngx/paperless-ngx:{{ paperless_version }}"
+    state: "started"
+    restart_policy: "unless-stopped"
+    volumes:
+      - "{{ paperless_host_path }}/data:/usr/src/paperless/data"
+      - "{{ paperless_host_path }}/media:/usr/src/paperless/media"
+      - "{{ paperless_host_path }}/export:/usr/src/paperless/export"
+      - "{{ paperless_host_path }}/consume:/usr/src/paperless/consume"
+    env:
+      PAPERLESS_REDIS: "redis://:{{ redis_password }}@redis:6379/1"
+      PAPERLESS_DBENGINE: "mariadb"
+      PAPERLESS_DBHOST: "{{ database_host_name }}"
+      PAPERLESS_DBUSER: "{{ paperless_db_user }}"
+      PAPERLESS_DBPASS: "{{ paperless_db_password }}"
+      PAPERLESS_DBPORT: "{{ database_port }}"
+    labels:
+      traefik.enable: "false"
+    networks:
+      - name: "db"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: "30s"
+      timeout: "10s"
+      retries: "5"
+    log_options:
+      max-size: "12m"
+      max-file: "5"
+    log_driver: "json-file"
+

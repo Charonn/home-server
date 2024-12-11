@@ -1,0 +1,71 @@
+---
+
+# - name: Ensure ownership of Nextcloud directories
+#   become: yes
+#   ansible.builtin.shell: |
+#     chown -R www-data:www-data {{ nextcloud_html_host_path }}
+#     chown -R www-data:www-data {{ nextcloud_data_host_path }}
+#
+# - name: Ensure directory permissions of Nextcloud directories
+#   become: yes
+#   ansible.builtin.shell: |
+#     find {{ nextcloud_html_host_path }} -type d -exec chmod 750 {} \;
+#     find {{ nextcloud_data_host_path }} -type d -exec chmod 750 {} \;
+#
+# - name: Ensure file permissions of Nextcloud directories
+#   become: yes
+#   ansible.builtin.shell: |
+#     find {{ nextcloud_html_host_path }} -type f -exec chmod 640 {} \;
+#     find {{ nextcloud_data_host_path }} -type f -exec chmod 640 {} \;
+
+- name: Ensure nextcloud-app container is present
+  tags: "nextcloud"
+  docker_container:
+    name: nextcloud-app
+    image: nextcloud:{{ nextcloud_version }}
+    state: started
+    restart_policy: unless-stopped
+    volumes:
+      - "{{ nextcloud_html_host_path }}:/var/www/html"
+      - "{{ nextcloud_data_host_path }}:/var/www/html/data"
+    env:
+      REDIS_HOST: redis
+      REDIS_HOST_PASSWORD: "{{ redis_password }}"
+      NEXTCLOUD_HOSTNAME: "{{ host }}"
+      MYSQL_HOST: "mariadb"
+      MYSQL_USER: "nextcloud"
+      MYSQL_PASSWORD: "{{ mysql_nextcloud_password }}"
+    labels:
+      traefik.enable: "true"
+      traefik.port: "80"
+      traefik.docker.network: traefik
+      traefik.http.routers.cloud.rule: "Host(`{{ host }}`) && PathPrefix(`/`)"
+      traefik.http.routers.cloud.tls.certresolver: letsencrypt
+      traefik.http.routers.cloud.middlewares: "cloud@docker,cloud-dav@docker,redirect-to-https@docker"
+      traefik.http.middlewares.cloud.headers.customFrameOptionsValue: SAMEORIGIN
+      traefik.http.middlewares.cloud.headers.framedeny: "true"
+      traefik.http.middlewares.cloud.headers.sslredirect: "true"
+      traefik.http.middlewares.cloud.headers.stsIncludeSubdomains: "true"
+      traefik.http.middlewares.cloud.headers.stsPreload: "true"
+      traefik.http.middlewares.cloud.headers.stsSeconds: "15552000"
+      traefik.http.middlewares.cloud-dav.replacepathregex.regex: "^/.well-known/ca(l|rd)dav"
+      traefik.http.middlewares.cloud-dav.replacepathregex.replacement: "/remote.php/dav/"
+    networks:
+      - name: traefik
+      - name: db
+    ports:
+      - "81:80"
+    log_options:
+      max-size: '12m'
+      max-file: '5'
+    log_driver: json-file
+
+- name: "Add nextcloud cron"
+  tags: "nextcloud"
+  become: "yes"
+  ansible.builtin.cron:
+    name: "start nextcloud cron"
+    minute: "5"
+    hour: "*"
+    job: "docker exec -u www-data nextcloud-app php /var/www/html/cron.php"
+

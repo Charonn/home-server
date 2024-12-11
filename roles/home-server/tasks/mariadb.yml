@@ -1,0 +1,31 @@
+---
+
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^db$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls
+  changed_when: docker_network_ls.stdout == ""
+
+- name: Create Docker network
+  command: docker network create db
+  when: docker_network_ls.stdout == ""
+
+# Deploy the MariaDB container
+- name: Deploy MariaDB container
+  docker_container:
+    name: "{{ database_host_name }}"
+    image: mariadb:{{ database_version }}
+    state: started
+    restart_policy: unless-stopped
+    command: "--transaction-isolation=READ-COMMITTED --binlog-format=ROW"
+    networks:
+      - name: db
+    ports:
+      - "{{ database_port }}:3306"
+    volumes:
+      - "{{ database_path }}:/var/lib/mysql"
+      - "{{ database_backup_path }}:/db_backup"
+    env:
+      MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+      MYSQL_USER: "nextcloud"
+      MYSQL_PASSWORD: "{{ mysql_nextcloud_password }}"
+      MYSQL_DATABASE: "nextcloud"

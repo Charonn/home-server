@@ -1,0 +1,19 @@
+---
+
+nextcloud_version: "{{ nextcloud_version_vault }}"
+nextcloud_html_host_path: "{{ nextcloud_html_host_path_vault }}"
+nextcloud_data_host_path: "{{ nextcloud_data_host_path_vault }}"
+redis_data_path: "{{ redis_data_path_vault }}"
+database_path: "{{ database_path_vault }}"
+database_backup_path: "{{ database_backup_path_vault }}"
+database_host_name: "{{ database_host_name_vault }}"
+database_port: "{{ database_port_vault }}"
+database_version: "{{ database_version_vault }}"
+paperless_host_path: "{{ paperless_host_path_vault }}"
+paperless_db_user: "{{ paperless_db_user_vault }}"
+paperless_db_password: "{{ paperless_db_password_vault }}"
+paperless_version: "{{ paperless_version_vault }}"
+traefik_path: "{{ traefik_path_vault }}"
+traefik_email: "{{ traefik_email_vault }}"
+pihole_password: "{{ pihhole_password_vault }}"
+

@@ -1,0 +1,182 @@
+---
+
+- name: "Create config dir"
+  file:
+    path: "/opt/internet-monitoring"
+    state: "directory"
+    mode: "0775"
+
+- name: "Create prometheus data dir"
+  file:
+    path: "/opt/internet-monitoring/prometheus-data"
+    state: "directory"
+    mode: "0777"
+
+- name: "Create prometheus config dir"
+  file:
+    path: "/opt/internet-monitoring/prometheus-config"
+    state: "directory"
+    mode: "0775"
+
+- name: "Create grafana data dir"
+  file:
+    path: "/opt/internet-monitoring/grafana-data"
+    state: "directory"
+    mode: "0775"
+
+- name: "Create grafana config dir"
+  file:
+    path: "/opt/internet-monitoring/grafana-config"
+    state: "directory"
+    mode: "0775"
+
+- name: "Copy blackbox config"
+  become: true
+  ansible.builtin.copy:
+    src: "files/internet-monitoring/blackbox/blackbox.yml"
+    dest: "/opt/internet-monitoring/blackbox.yml"
+    mode: "0775"
+
+- name: "Copy prometheus alert rules"
+  become: true
+  ansible.builtin.copy:
+    src: "files/internet-monitoring/prometheus/alert.rules"
+    dest: "/opt/internet-monitoring/prometheus-config/alert.rules"
+    mode: "0775"
+
+- name: "Copy prometheus ping hosts"
+  become: true
+  ansible.builtin.copy:
+    src: "files/internet-monitoring/prometheus/pinghosts.yaml"
+    dest: "/opt/internet-monitoring/prometheus-config/pinghosts.yaml"
+    mode: "0775"
+
+- name: "Copy prometheus prometheus config"
+  become: true
+  ansible.builtin.copy:
+    src: "files/internet-monitoring/prometheus/prometheus.yml"
+    dest: "/opt/internet-monitoring/prometheus-config/prometheus.yml"
+    mode: "0775"
+
+- name: Copy grafana boards
+  ansible.posix.synchronize:
+    src: files/internet-monitoring/grafana/provisioning
+    dest: /opt/internet-monitoring/grafana-config
+
+- name: "Copy grafana config"
+  become: true
+  ansible.builtin.template:
+    src: "files/internet-monitoring/grafana/config.monitoring.j2"
+    dest: "/opt/internet-monitoring/grafana-config/config.monitoring"
+    mode: "0775"
+
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^front-tier$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls_front_tier
+  changed_when: docker_network_ls_front_tier.stdout == ""
+
+- name: Create Docker network
+  command: docker network create front-tier
+  when: docker_network_ls_front_tier.stdout == ""
+
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^back-tier$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls_back_tier
+  changed_when: docker_network_ls_back_tier.stdout == ""
+
+- name: Create Docker network
+  command: docker network create back-tier
+  when: docker_network_ls_back_tier.stdout == ""
+
+- name: Run Prometheus container
+  docker_container:
+    name: prometheus
+    image: prom/prometheus:v2.25.2
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - "/opt/internet-monitoring/prometheus-config/:/etc/prometheus/"
+      - "/opt/internet-monitoring/prometheus-data:/prometheus"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - name: back-tier
+#    links:
+#      - "ping:ping"
+#      - "speedtest:speedtest"
+
+- name: Run Grafana container
+  docker_container:
+    name: grafana
+    image: grafana/grafana
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "3030:3000"
+    volumes:
+      - "/opt/internet-monitoring/grafana-data:/var/lib/grafana"
+      - "/opt/internet-monitoring/grafana-config/provisioning:/etc/grafana/provisioning/"
+    env_file: /opt/internet-monitoring/grafana-config/config.monitoring
+    networks:
+      - name: back-tier
+      - name: front-tier
+
+- name: Run Blackbox Exporter container
+  docker_container:
+    name: ping
+    image: prom/blackbox-exporter
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "9115:9115"
+    expose:
+      - 9115
+    volumes:
+      - "/opt/internet-monitoring/blackbox.yml:/config/blackbox.yml"
+    command:
+      - "--config.file=/config/blackbox.yml"
+    tty: yes
+    interactive: yes
+    networks:
+      - name: back-tier
+
+- name: Run Speedtest Exporter container
+  docker_container:
+    name: speedtest
+    image: miguelndecarvalho/speedtest-exporter
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "9798:9798"
+    expose:
+      - 9798
+    tty: yes
+    interactive: yes
+    networks:
+      - name: back-tier
+
+- name: Run Node Exporter container
+  docker_container:
+    name: nodeexporter
+    image: prom/node-exporter
+    state: started
+    privileged: yes
+    restart_policy: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - "/proc:/host/proc:ro"
+      - "/sys:/host/sys:ro"
+      - "/:/rootfs:ro"
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.ignored-mount-points"
+      - "^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+    networks:
+      - name: back-tier

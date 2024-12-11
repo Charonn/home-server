@@ -1,0 +1,16 @@
+---
+# Default system groups
+system_groups:
+  - name: ssh-users
+  - name: docker
+  - name: deployment
+
+system_users:
+  - name: deployment
+    groups: "ssh-users, deployment"
+
+users:
+  - name: marcel
+    groups: "{{ groups_default }}, sudo"
+
+groups_default: docker, ssh-users, deployment

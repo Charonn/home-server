@@ -1,0 +1,12 @@
+---
+- name: Deploy Redis container
+  docker_container:
+    name: redis
+    image: redis
+    state: started
+    restart_policy: unless-stopped
+    command: "redis-server --requirepass {{ redis_password }}"
+    networks:
+      - name: db
+    volumes:
+      - "/mnt/data/redis/nextcloud/:/data"

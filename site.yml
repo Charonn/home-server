@@ -1,0 +1,27 @@
+---
+
+- hosts: proxmox
+  become: yes
+  roles:
+    - role: proxmox 
+      tags: proxmox
+    - role: geerlingguy.docker
+    - role: home-server
+
+- hosts: zotac
+  become: yes
+  roles:
+    - role: common
+    - role: geerlingguy.docker
+    - role: docker
+    - role: "home-server"
+      tags: "home-server"
+
+- hosts: proxmox_home_server 
+  become: yes
+  roles:
+    - role: common
+    - role: geerlingguy.docker
+    - role: docker
+    - role: "home-server"
+      tags: "home-server"

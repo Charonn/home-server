@@ -1,0 +1,15 @@
+- name: "Install PIP"
+  ansible.builtin.apt:
+    name: "{{ item }}"
+  with_items:
+    - "pip"
+    - "python3-docker"
+
+- name: "Install docker python SDK package"
+  ansible.builtin.pip:
+    name: "{{ item }}"
+  with_items:
+    - "docker"
+    # - "docker-compose"
+  ignore_errors: "{{ ansible_check_mode }}"
+  failed_when: false

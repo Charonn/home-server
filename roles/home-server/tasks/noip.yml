@@ -1,0 +1,39 @@
+---
+
+- name: "Create config dir"
+  file:
+    path: "/home/marcel/noip"
+    state: "directory"
+    mode: "0775"
+
+- name: "Copy noip config"
+  become: true
+  ansible.builtin.template:
+    src: "files/noip.conf.j2"
+    dest: "/home/marcel/noip/noip.conf"
+    mode: "0775"
+
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^traefik$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls
+
+- name: Create Docker network
+  command: docker network create traefik
+  when: docker_network_ls.stdout == ""
+
+- name: "Run No-IP container"
+  docker_container:
+    name: "noip"
+    image: "coppit/no-ip"
+    state: "started"
+    restart_policy: "unless-stopped"
+    volumes:
+      - "/etc/localtime:/etc/localtime"
+      - "/home/marcel/noip:/config"
+    log_options:
+      max-size: "15m"
+      max-file: "5"
+    log_driver: json-file
+    networks:
+      - name: traefik
+

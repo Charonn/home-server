@@ -1,0 +1,7 @@
+---
+
+users:
+  - name: marcel
+    groups: "docker, sudo"
+
+groups_default: docker

@@ -1,0 +1,56 @@
+---
+
+- name: "Create data dir"
+  file:
+    path: "/home/marcel/pihole/pihole"
+    state: "directory"
+    mode: "0775"
+
+- name: "Create data dir"
+  file:
+    path: "/home/marcel/pihole/dnsmasq.d"
+    state: "directory"
+    mode: "0775"
+
+- name: Ensure pihole container is present
+  docker_container:
+    name: "pihole"
+    image: "pihole/pihole:2023.05.2"
+    state: "started"
+    network_mode: "host"
+    dns_servers:
+      - "127.0.0.1"
+      - "1.1.1.1"
+    env:
+      ServerIP: "192.168.0.4"
+      TZ: "Europe/Berlin"
+      WEBPASSWORD: "{{ pihole_password }}"
+      INTERFACE: 'enp4s11'
+      WEB_BIND_ADDR: "192.168.0.4"
+      DNSMASQ_LISTENING: "all"
+      WEB_PORT: "9116"
+      INSTALL_WEB_SERVER: "true"
+      INSTALL_WEB_INTERFACE: "true"
+      PIHOLE_INTERFACE: "enp4s11"
+      QUERY_LOGGING: "true"
+      BLOCKING_ENABLED: "true"
+      DHCP_ACTIVE: "false"
+      DHCP_START: "192.168.0.2"
+      DHCP_END: "192.168.0.254"
+      DHCP_ROUTER: "192.168.0.1"
+      DHCP_LEASETIME: "24"
+      PIHOLE_DOMAIN: "lan"
+      PIHOLE_DNS_1: "8.8.8.8"
+      PIHOLE_DNS_2: "8.8.4.4"
+      PIHOLE_DNS_3: "1.1.1.1"
+      PIHOLE_DNS_4: "1.0.0.1"
+      DNS_FQDN_REQUIRED: "false"
+      DNS_BOGUS_PRIV: "false"
+      DNSSEC: "false"
+      REV_SERVER: "false"
+    volumes:
+      - "/home/marcel/pihole/pihole:/etc/pihole"
+      - "/home/marcel/pihole/dnsmasq.d:/etc/dnsmasq.d"
+    capabilities:
+      - NET_ADMIN
+    restart_policy: unless-stopped

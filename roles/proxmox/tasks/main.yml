@@ -1,0 +1,102 @@
+---
+
+- name: Set timezone to Europe/Berlin
+  timezone:
+    name: Europe/Berlin
+
+- name: Deploy public keys of organic users
+  authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ lookup('file', '{{ item.name }}.pub') }}"
+    state: present
+  loop: "{{ users }}"
+  when: item.state is undefined or item.state != "present"
+
+- name: Allow passwordless sudo
+  lineinfile:
+    path: /etc/sudoers.d/sudoers
+    create: true
+    line: '%sudo ALL=(ALL) NOPASSWD: ALL'
+    validate: '/usr/sbin/visudo -cf %s'
+    state: present
+
+- name: disable ssh password authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "#? ?PasswordAuthentication (yes|no)"
+    line: PasswordAuthentication yes
+  register: ssh_config
+
+- name: (Re)Start ssh
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+    name: ssh
+  when: ssh_config.changed
+   
+- name: apt ugrade
+  apt:
+    upgrade: yes
+
+- name: Install common software
+  apt:
+    name: "{{ packages }}"
+    update_cache: "true"
+  vars:
+    packages:
+      - python3-docker
+      - docker-compose
+      - htop
+      - nano
+      - tmux
+      - ranger
+      - git
+      - iotop
+      - iftop
+      - colordiff
+      - ncdu
+      - arandr
+      - aria2
+      - autorandr
+      - blueman
+      - borgbackup
+      - coreutils
+      - curl
+      - dash
+      - fzf
+      - gcr
+      - gedit
+      - gedit-common
+      - gist
+      - git
+      - git-man
+      - gopass
+      - httpie
+      - icu-devtools
+      - iftop
+      - iio-sensor-proxy
+      - iotop
+      - jq
+      - kitty
+      - kitty-doc
+      - kitty-terminfo
+      - klibc-utils
+      - kmod
+      - lnav
+      - mc
+      - mc-data
+      - mkisofs
+      - ncmpcpp
+      - parcellite
+      - powertop
+      - pv
+      - rclone
+      - rclone-browser
+      - rsync
+      - thefuck
+      - tig
+      - tmux
+      - vim
+      - zsh
+      - zsh-common
