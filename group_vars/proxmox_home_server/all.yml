@@ -15,5 +15,7 @@ paperless_db_password: "{{ paperless_db_password_vault }}"
 paperless_version: "{{ paperless_version_vault }}"
 traefik_path: "{{ traefik_path_vault }}"
 traefik_email: "{{ traefik_email_vault }}"
+tailscale_auth_key: "{{ tailscale_auth_key_vault }}"
+tailscale_host_path: "{{ tailscale_host_path_vault }}"
 pihole_password: "{{ pihhole_password_vault }}"
 

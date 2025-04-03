@@ -1,4 +1,7 @@
 ---
+- name: "tailscale"
+  include_tasks: "tailscale.yml"
+  tags: "tailscale"
 - name: "noip"
   include_tasks: "noip.yml"
 - name: "traefik"

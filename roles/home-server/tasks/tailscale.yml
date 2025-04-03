@@ -1,0 +1,38 @@
+---
+- name: Create base directory
+  file: 
+    path: "{{ tailscale_host_path }}"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^tailscale$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls
+  changed_when: docker_network_ls.stdout == ""
+
+- name: Create Docker network
+  command: docker network create tailscale
+  when: docker_network_ls.stdout == ""
+
+- name: Ensure Tailscale container is running
+  docker_container:
+    name: tailscale
+    image: tailscale/tailscale:v1.80.0
+    hostname: paperless
+    env:
+      TS_AUTHKEY: "{{ tailscale_auth_key }}"
+      TS_EXTRA_ARGS: "--advertise-tags=tag:container"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_SERVE_CONFIG: "/config/paperless.json"
+      TS_USERSPACE: "true"
+    volumes:
+      - "{{ tailscale_host_path }}/tailscale-state:/var/lib/tailscale"
+      - "{{ tailscale_host_path }}/config:/config"
+    restart_policy: unless-stopped
+    dns_search_domains: 
+      - "tailscale"
+    state: started
+    networks:
+      - name: tailscale

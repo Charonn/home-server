@@ -17,7 +17,7 @@
     - role: "home-server"
       tags: "home-server"
 
-- hosts: proxmox_home_server 
+- hosts: proxmox_home_server
   become: yes
   roles:
     - role: common
