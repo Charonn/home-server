@@ -1,4 +1,13 @@
 ---
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^immich$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls
+  changed_when: docker_network_ls.stdout == ""
+
+- name: Create Docker network
+  command: docker network create immich
+  when: docker_network_ls.stdout == ""
+
 - name: Create base directory
   file:
     path: "{{ immich_host_path }}"
@@ -9,7 +18,7 @@
 
 - name: Create consume directory
   file:
-    path: "{{ immich_host_path }}/consume"
+    path: "{{ immich_host_path }}/upload"
     owner: deployment
     group: deployment
     mode: 0770
@@ -23,24 +32,100 @@
     mode: 0770
     state: directory
 
-- name: Create export directory
-  file:
-    path: "{{ immich_host_path }}/export"
-    owner: deployment
-    group: deployment
-    mode: 0770
-    state: directory
+- name: Ensure PostgreSQL user exists
+  community.postgresql.postgresql_user:
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "postgres"
+    login_port: "5432"
+    name: "{{ immich_db_user }}"
+    password: "{{ immich_db_password }}"
+    priv: "ALL"
+    db: "{{ immich_db_name }}"
+    state: present
+    role_attr_flags: "CREATEDB,NOLOGIN"  # Adjust as needed
 
-- name: Create media directory
-  file:
-    path: "{{ immich_host_path }}/media"
-    owner: deployment
-    group: deployment
-    mode: 0770
-    state: directory
+- name: Ensure Immich database exists
+  community.postgresql.postgresql_db:
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "postgres"
+    login_port: "5432"
+    name: "{{ immich_db_name }}"
+    owner: "{{ immich_db_user }}"
+    state: present
+    encoding: "UTF8"
+    lc_collate: "C"
+    lc_ctype: "C"
+    template: "template0"
+
+- name: Create Immich server container
+  docker_container:
+    name: immich_server
+    image: "ghcr.io/immich-app/immich-server:{{ immich_version }}"
+    volumes:
+      - "{{ immich_host_path }}/upload:/usr/src/app/upload"
+      - "{{ immich_host_path }}/data:/usr/src/app/data"
+      - "/etc/localtime:/etc/localtime:ro"
+    env: 
+      DB_HOSTNAME: "{{ postgres_database_host_name }}"  # "postgres" if using container name
+      DB_USERNAME: "{{ immich_db_user }}"
+      DB_PASSWORD: "{{ immich_db_password }}"
+      DB_DATABASE_NAME: "immich"
+      DB_PORT: "5432"
+
+      REDIS_HOSTNAME: "redis"  # Container name if in same Docker network
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "{{ redis_password }}"
+      REDIS_DBINDEX: "1"  # Optional: if you want specific Redis DB
+
+      UPLOAD_LOCATION: "/usr/src/app/upload"  # Must match container volume mount
+      DATA_LOCATION: "/usr/src/app/data"     # For generated files (thumbnails, etc.)
+
+      NODE_ENV: "production"
+      IMMICH_PORT: "2283"
+      IMMICH_MACHINE_LEARNING_URL: "http://immich_machine_learning:3003"
+
+      # Optional but Recommended
+      DISABLE_REVERSE_GEOCODING: "false"  # Set true if not using map features
+      TYPESENSE_ENABLED: "false"          # Set true if using Typesense search
+      LOG_LEVEL: "log" 
+    ports:
+      - "2283:2283"
+    restart_policy: always
+    networks:
+      - name: "immich"
+      - name: "postgres"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:2283/api/server-info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    log_options:
+      max-size: "12m"
+      max-file: "5"
+    log_driver: "json-file"
+
+- name: Create Immich machine learning container
+  community.docker.docker_container:
+    name: immich_machine_learning
+    image: "ghcr.io/immich-app/immich-machine-learning:{{ IMMICH_VERSION }}"
+    networks:
+      - name: "immich"
+    volumes:
+      - "{{ immich_host_path }}/model-cache:/cache"
+      - "{{ immich_host_path }}/data:/usr/src/app/data"
+    env:
+      IMMICH_MACHINE_LEARNING_PORT: "3003"  # ML container's listening port
+    restart_policy: always
+    labels:
+      traefik.enable: "false"
+    log_options:
+      max-size: "12m"
+      max-file: "5"
+    log_driver: "json-file"
 
 - name: Ensure immich container is present
-  tags: "immich"
   docker_container:
     name: "immich"
     image: "ghcr.io/immich-ngx/immich-ngx:{{ immich_version }}"
@@ -48,9 +133,7 @@
     restart_policy: "unless-stopped"
     volumes:
       - "{{ immich_host_path }}/data:/usr/src/immich/data"
-      - "{{ immich_host_path }}/media:/usr/src/immich/media"
-      - "{{ immich_host_path }}/export:/usr/src/immich/export"
-      - "{{ immich_host_path }}/consume:/usr/src/immich/consume"
+      - "{{ immich_host_path }}/upload:/usr/src/immich/media"
     env:
       immich_REDIS: "redis://:{{ redis_password }}@redis:6379/1"
       immich_DBENGINE: "mariadb"
@@ -64,11 +147,6 @@
       - name: "db"
     ports:
       - "8000:8000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000"]
-      interval: "30s"
-      timeout: "10s"
-      retries: "5"
     log_options:
       max-size: "12m"
       max-file: "5"

@@ -40,7 +40,6 @@
     state: directory
 
 - name: Ensure paperless container is present
-  tags: "paperless"
   docker_container:
     name: "paperless"
     image: "ghcr.io/paperless-ngx/paperless-ngx:{{ paperless_version }}"
@@ -63,8 +62,6 @@
     networks:
       - name: "db"
       - name: "tailscale"
-    # ports:
-    #   - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000"]
       interval: "30s"

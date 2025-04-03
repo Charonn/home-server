@@ -42,13 +42,14 @@
     volumes:
       - "{{ postgres_host_path }}/data:/var/lib/postgresql/data"
     env:
+      POSTGRES_HOST_AUTH_METHOD: "md5"
       POSTGRES_PASSWORD: "{{ postgres_password }}"
       POSTGRES_DB: "default"
       POSTGRES_USER: "postgres"
     labels:
       traefik.enable: "false"
     networks:
-      - name: "postgres"
+      - name: "postgres" 
     ports:
       - "5432:5432"
     healthcheck:

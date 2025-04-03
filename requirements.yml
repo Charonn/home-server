@@ -1,6 +1,7 @@
 collections:
   - name: "community.docker"
     version: "2.2.0"
+  - name: "community.postgresql"
 
 roles:
   - name: "geerlingguy.docker"
