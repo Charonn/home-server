@@ -1,5 +1,4 @@
 ---
-
 nextcloud_version: "{{ nextcloud_version_vault }}"
 nextcloud_html_host_path: "{{ nextcloud_html_host_path_vault }}"
 nextcloud_data_host_path: "{{ nextcloud_data_host_path_vault }}"
@@ -13,9 +12,13 @@ paperless_host_path: "{{ paperless_host_path_vault }}"
 paperless_db_user: "{{ paperless_db_user_vault }}"
 paperless_db_password: "{{ paperless_db_password_vault }}"
 paperless_version: "{{ paperless_version_vault }}"
+postgres_password: "{{ postgres_passowrd_vault }}"
+postgres_host_path: "{{ postgres_host_path_vault }}"
+postgres_version: "{{ postgres_version_vault }}"
+pg_default_email: "{{ pg_default_email_vault }}"
+pg_default_password: "{{ pg_default_password_vault }}"
 traefik_path: "{{ traefik_path_vault }}"
 traefik_email: "{{ traefik_email_vault }}"
 tailscale_auth_key: "{{ tailscale_auth_key_vault }}"
 tailscale_host_path: "{{ tailscale_host_path_vault }}"
 pihole_password: "{{ pihhole_password_vault }}"
-

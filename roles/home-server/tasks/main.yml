@@ -19,3 +19,6 @@
 - name: "pihole"
   include_tasks: "pihole.yml"
   tags: "pihole"
+- name: "postgres"
+  include_tasks: "postgres.yml"
+  tags: "postgres"
