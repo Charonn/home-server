@@ -1,0 +1,75 @@
+---
+- name: Create base directory
+  file:
+    path: "{{ immich_host_path }}"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create consume directory
+  file:
+    path: "{{ immich_host_path }}/consume"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create data directory
+  file:
+    path: "{{ immich_host_path }}/data"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create export directory
+  file:
+    path: "{{ immich_host_path }}/export"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create media directory
+  file:
+    path: "{{ immich_host_path }}/media"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Ensure immich container is present
+  tags: "immich"
+  docker_container:
+    name: "immich"
+    image: "ghcr.io/immich-ngx/immich-ngx:{{ immich_version }}"
+    state: "started"
+    restart_policy: "unless-stopped"
+    volumes:
+      - "{{ immich_host_path }}/data:/usr/src/immich/data"
+      - "{{ immich_host_path }}/media:/usr/src/immich/media"
+      - "{{ immich_host_path }}/export:/usr/src/immich/export"
+      - "{{ immich_host_path }}/consume:/usr/src/immich/consume"
+    env:
+      immich_REDIS: "redis://:{{ redis_password }}@redis:6379/1"
+      immich_DBENGINE: "mariadb"
+      immich_DBHOST: "{{ database_host_name }}"
+      immich_DBUSER: "{{ immich_db_user }}"
+      immich_DBPASS: "{{ immich_db_password }}"
+      immich_DBPORT: "{{ database_port }}"
+    labels:
+      traefik.enable: "false"
+    networks:
+      - name: "db"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: "30s"
+      timeout: "10s"
+      retries: "5"
+    log_options:
+      max-size: "12m"
+      max-file: "5"
+    log_driver: "json-file"

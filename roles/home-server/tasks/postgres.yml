@@ -1,0 +1,87 @@
+---
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^postgres$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls
+  changed_when: docker_network_ls.stdout == ""
+
+- name: Create Docker network
+  command: docker network create postgres
+  when: docker_network_ls.stdout == ""
+
+- name: Create base directory
+  file:
+    path: "{{ postgres_host_path }}"
+    owner: deployment
+    group: deployment
+    mode: 0770
+    state: directory
+
+- name: Create data directory
+  file:
+    path: "{{ postgres_host_path }}/data"
+    owner: 999
+    group: deployment
+    mode: 0775
+    state: directory
+
+- name: Create pgadmin directory
+  file:
+    path: "{{ postgres_host_path }}/pgadmin-data"
+    owner: 5050
+    group: deployment
+    mode: 0775
+    state: directory
+
+- name: Ensure postgres container is present
+  tags: "postgres"
+  docker_container:
+    name: "postgres"
+    image: "postgres:{{ postgres_version }}"
+    state: "started"
+    restart_policy: "unless-stopped"
+    volumes:
+      - "{{ postgres_host_path }}/data:/var/lib/postgresql/data"
+    env:
+      POSTGRES_PASSWORD: "{{ postgres_password }}"
+      POSTGRES_DB: "default"
+      POSTGRES_USER: "postgres"
+    labels:
+      traefik.enable: "false"
+    networks:
+      - name: "postgres"
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-d", "default"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
+    log_options:
+      max-size: "12m"
+      max-file: "5"
+    log_driver: "json-file"
+
+- name: Ensure pgadmin container is present
+  tags: "postgres"
+  docker_container:
+    name: "pgadmin"
+    image: "dpage/pgadmin4"
+    state: "started"
+    restart_policy: "unless-stopped"
+    volumes:
+      - "{{ postgres_host_path }}/pgadmin-data:/var/lib/pgadmin/"
+    env:
+      PGADMIN_DEFAULT_EMAIL: "{{ pg_default_email }}"
+      PGADMIN_DEFAULT_PASSWORD: "{{ pg_default_password }}"
+      PGADMIN_LISTEN_PORT: "80"
+    labels:
+      traefik.enable: "false"
+    networks:
+      - name: "postgres"
+    ports:
+      - "15432:80"
+    log_options:
+      max-size: "12m"
+      max-file: "5"
+    log_driver: "json-file"
