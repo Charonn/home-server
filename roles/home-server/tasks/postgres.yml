@@ -1,14 +1,17 @@
 ---
 - name: Check if Docker network exists
+  tags: "postgres"
   shell: docker network ls --filter name=^postgres$ --format="{{ '{{.Name}}' }}"
   register: docker_network_ls
   changed_when: docker_network_ls.stdout == ""
 
 - name: Create Docker network
+  tags: "postgres"
   command: docker network create postgres
   when: docker_network_ls.stdout == ""
 
 - name: Create base directory
+  tags: "postgres"
   file:
     path: "{{ postgres_host_path }}"
     owner: deployment
@@ -17,6 +20,7 @@
     state: directory
 
 - name: Create data directory
+  tags: "postgres"
   file:
     path: "{{ postgres_host_path }}/data"
     owner: 999
@@ -25,6 +29,7 @@
     state: directory
 
 - name: Create pgadmin directory
+  tags: "postgres"
   file:
     path: "{{ postgres_host_path }}/pgadmin-data"
     owner: 5050

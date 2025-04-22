@@ -1,0 +1,48 @@
+
+- name: Check if IntelliJ IDEA Ultimate is already installed
+  stat:
+    path: /opt/intellij-idea-ultimate/idea-IU-241.18968.26/bin
+  register: idea_install
+
+- name: Create directory for IntelliJ IDEA
+  file:
+    path: /opt/intellij-idea-ultimate
+    state: directory
+    mode: '0755'
+  when: not idea_install.stat.exists
+
+- name: Download IntelliJ IDEA Ultimate AppImage
+  get_url:
+    url: https://download.jetbrains.com/idea/ideaIU-2024.1.5.tar.gz
+    dest: /tmp/ideaIU.tar.gz
+  when: not idea_install.stat.exists
+
+- name: Extract IntelliJ IDEA Ultimate
+  unarchive:
+    src: /tmp/ideaIU.tar.gz
+    dest: /opt/intellij-idea-ultimate/
+    remote_src: yes
+    creates: /opt/intellij-idea-ultimate/idea
+  when: not idea_install.stat.exists
+
+- name: Create a symlink for IntelliJ IDEA executable
+  file:
+    src: /opt/intellij-idea-ultimate/idea-IU-241.18968.26/bin/idea.sh
+    dest: /usr/local/bin/intellij-idea-ultimate
+    state: link
+  when: not idea_install.stat.exists
+
+- name: Create desktop entry for IntelliJ IDEA Ultimate
+  copy:
+    dest: /usr/share/applications/intellij-idea-ultimate.desktop
+    content: |
+      [Desktop Entry]
+      Version=1.0
+      Name=IntelliJ IDEA Ultimate
+      Comment=JetBrains IntelliJ IDEA Ultimate Edition
+      Exec=/opt/intellij-idea-ultimate/idea-IU-241.18968.26/bin/idea.sh
+      Icon=/opt/intellij-idea-ultimate/idea-IU-241.18968.26/bin/idea.png
+      Terminal=false
+      Type=Application
+      Categories=Development;IDE;
+  when: not idea_install.stat.exists

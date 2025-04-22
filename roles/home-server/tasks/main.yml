@@ -24,4 +24,5 @@
   tags: "postgres"
 - name: "immich"
   include_tasks: "immich.yml"
-  tags: ['immich', 'home-server']
+  tags:
+    - "immich"

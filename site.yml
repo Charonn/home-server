@@ -3,8 +3,6 @@
 - hosts: proxmox
   become: yes
   roles:
-    - role: proxmox 
-      tags: proxmox
     - role: geerlingguy.docker
     - role: home-server
 
@@ -24,4 +22,11 @@
     - role: geerlingguy.docker
     - role: docker
     - role: "home-server"
-      tags: "home-server"
+      tags:
+        - "home-server"
+
+- hosts: ubuntu_marcel
+  become: yes
+  roles:
+    - role: common
+    - role: ubuntu

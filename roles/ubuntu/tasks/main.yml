@@ -1,0 +1,398 @@
+---
+- name: Add Fish shell PPA
+  apt_repository:
+    repo: "ppa:fish-shell/release-3"
+    state: present
+
+- name: Ensure the apt keyrings directory exists
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Add the GPG key for the 1Password APT repository
+  shell: curl -sS https://downloads.1password.com/linux/keys/1password.asc | gpg --dearmor -o /usr/share/keyrings/1password-archive-keyring.gpg
+  args:
+    creates: /usr/share/keyrings/1password-archive-keyring.gpg
+
+- name: Add the 1Password APT repository
+  copy:
+    content: 'deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main'
+    dest: /etc/apt/sources.list.d/1password.list
+
+- name: Create directory for debsig policy
+  file:
+    path: /etc/debsig/policies/AC2D62742012EA22/
+    state: directory
+    mode: '0755'
+
+- name: Add the debsig-verify policy
+  shell: curl -sS https://downloads.1password.com/linux/debian/debsig/1password.pol | tee /etc/debsig/policies/AC2D62742012EA22/1password.pol
+  args:
+    creates: /etc/debsig/policies/AC2D62742012EA22/1password.pol
+
+- name: Create directory for debsig keyring
+  file:
+    path: /usr/share/debsig/keyrings/AC2D62742012EA22
+    state: directory
+    mode: '0755'
+
+- name: Add the debsig-verify keyring
+  shell: curl -sS https://downloads.1password.com/linux/keys/1password.asc | gpg --dearmor -o /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg
+  args:
+    creates: /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+
+- name: Check if packages are installed
+  shell: dpkg-query -W -f='${Status}' {{ item }} 2>/dev/null | grep -c "ok installed"
+  register: check_packages
+  changed_when: false
+  ignore_errors: yes
+  with_items:
+    - apt-transport-https
+    - bashtop
+    - xdg-utils
+    - wl-clipboard
+    - git
+    - tig
+    - lsd
+    - vim
+    - curl
+    - ca-certificates
+    - htop
+    - ansible
+    - ansible-core
+    - bashtop
+    - blueman
+    - borgbackup
+    - wget
+    - flatpak
+    - ffmpeg
+    - grim
+    - filezilla
+    - 1password
+    - flatpak
+    - fish
+    - tmux
+    - fzf
+    - gopass
+    - golang
+    - httpie
+    - iotop
+    - imagemagick
+    - jq
+    - kitty
+    - libfuse2
+    - lnav
+    - mc
+    - meson
+    - meld
+    - mysql-client
+    - mysql-common
+    - mtr
+    - npm
+    - net-tools
+    - pavucontrol
+    - pwgen
+    - ripgrep
+    - solaar
+    - software-properties-common
+    - stress-ng
+    - system-config-printer
+    - zsh
+    - unzip
+    - wget
+    - python3
+    - python3-venv
+    - python3-setuptools
+
+- name: Ensure packages are installed using nala
+  shell: nala install -y {{ item.item }}
+  with_items: "{{ check_packages.results }}"
+  when: item.stdout == "0"
+
+- name: Install nala using apt
+  apt:
+    name: nala
+    state: present
+
+- name: Uninstall Firefox Snap
+  command: snap remove firefox
+  ignore_errors: yes
+
+- name: Uninstall Firefox apt
+  apt:
+    name: 
+      - firefox
+      - chromium-browser
+    state: absent
+
+- name: Remove Firefox Snap environment variables (if any)
+  shell: "sed -i '/^export FIREFOX_HOME/d' /etc/environment"
+  ignore_errors: yes
+
+- name: Install Flatpak
+  apt:
+    name: flatpak
+    state: present
+
+- name: Add the Flathub repository
+  command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+  args:
+    creates: /var/lib/flatpak/repo/flathub
+
+- name: Install Firefox from Flathub
+  command: flatpak install -y flathub org.mozilla.firefox
+  args:
+    creates: /var/lib/flatpak/app/org.mozilla.firefox
+
+- name: Install Flatpak
+  apt:
+    name: flatpak
+    state: present
+
+- name: Add the Flathub repository
+  command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+  args:
+    creates: /var/lib/flatpak/repo/flathub
+
+- name: Install a list of applications from Flathub
+  command: flatpak install -y flathub {{ item }}
+  loop:
+    - org.mozilla.firefox
+    - org.chromium.Chromium
+    - com.slack.Slack
+    - io.dbeaver.DBeaverCommunity
+    - md.obsidian.Obsidian
+    - com.brave.Browser
+    - com.visualstudio.code
+    - com.getpostman.Postman
+    - org.gimp.GIMP
+    - org.qutebrowser.qutebrowser
+    - org.keepassxc.KeePassXC
+    - com.spotify.Client
+    - io.github.zen_browser.zen
+  args:
+    creates: /var/lib/flatpak/app/{{ item }}
+
+- name: Create Postman certificate if it doesn't exist
+  command: openssl req -subj '/C=US/CN=Postman Proxy' -new -newkey rsa:2048 -sha256 -days 365 -nodes -x509 -keyout postman-proxy-ca.key -out postman-proxy-ca.crt
+  args:
+    chdir: /home/mhufnagel/.var/app/com.getpostman.Postman/config/Postman/proxy
+    creates: /home/mhufnagel/.var/app/com.getpostman.Postman/config/Postman/proxy/postman-proxy-ca.crt
+
+- name: Remove existing non-Flatpak Firefox desktop entry
+  file:
+    path: /usr/share/applications/firefox.desktop
+    state: absent
+
+- name: Create desktop entry for Flatpak Firefox
+  copy:
+    dest: /usr/share/applications/org.mozilla.firefox.desktop
+    content: |
+      [Desktop Entry]
+      Version=1.0
+      Name=Firefox
+      Comment=Web Browser
+      Exec=flatpak run org.mozilla.firefox
+      Icon=firefox
+      Terminal=false
+      Type=Application
+      Categories=Network;WebBrowser;
+
+- name: Set Flatpak permissions, GTK theme, and other configurations
+  shell: |
+    flatpak override --user org.freedesktop.Slack --talk-name=org.freedesktop.portal.Desktop
+    flatpak override --user org.freedesktop.Slack --talk-name=org.freedesktop.portal.ScreenCast
+    flatpak override --user org.freedesktop.Slack --talk-name=org.freedesktop.portal.FileChooser
+    flatpak override --user org.chromium.Chromium --talk-name=org.freedesktop.portal.Desktop
+    flatpak override --user org.chromium.Chromium --talk-name=org.freedesktop.portal.ScreenCast
+    flatpak override --user org.chromium.Chromium --talk-name=org.freedesktop.portal.FileChooser
+    gsettings set org.gnome.desktop.interface gtk-theme "Adwaita-dark"
+    xdg-settings set default-web-browser org.mozilla.firefox.desktop
+    ln -sf /usr/bin/python3 /usr/bin/python
+  become: yes
+  become_user: mhufnagel
+  ignore_errors: yes
+
+- name: Download Vault binary
+  get_url:
+    url: https://releases.hashicorp.com/vault/{{ VERSION }}/vault_{{ VERSION }}_linux_amd64.zip
+    dest: /tmp/vault.zip
+  vars:
+    VERSION: "1.17.2"
+
+- name: Unzip Vault binary
+  unarchive:
+    src: /tmp/vault.zip
+    dest: /usr/local/bin/
+    remote_src: yes
+
+- name: Ensure Vault is executable
+  file:
+    path: /usr/local/bin/vault
+    mode: '0755'
+
+- name: Create fonts directory
+  file:
+    path: ~/.local/share/fonts
+    state: directory
+    mode: '0755'
+    owner: "mhufnagel"
+
+- name: Download and install Nerd Fonts
+  get_url:
+    url: "https://github.com/ryanoasis/nerd-fonts/releases/download/v2.1.0/FiraCode.zip"
+    dest: /tmp/FiraCode.zip
+
+- name: Unzip Nerd Fonts
+  unarchive:
+    src: /tmp/FiraCode.zip
+    dest: ~/.local/share/fonts
+    remote_src: yes
+
+- name: Download and install JetBrains Mono
+  get_url:
+    url: "https://github.com/JetBrains/JetBrainsMono/releases/download/v2.242/JetBrainsMono-2.242.zip"
+    dest: /tmp/JetBrainsMono.zip
+- name: Unzip JetBrains Mono
+  unarchive:
+    src: /tmp/JetBrainsMono.zip
+    dest: ~/.local/share/fonts
+    remote_src: yes
+
+- name: Refresh font cache
+  command: fc-cache -fv
+
+- name: Download Terraform binary
+  get_url:
+    url: "https://releases.hashicorp.com/terraform/{{ VERSION }}/terraform_{{ VERSION }}_linux_amd64.zip"
+    dest: /tmp/terraform.zip
+  vars:
+    VERSION: "1.4.6"  # Replace with the desired version
+
+- name: Unzip Terraform binary
+  unarchive:
+    src: /tmp/terraform.zip
+    dest: /usr/local/bin/
+    remote_src: yes
+
+- name: Ensure Terraform binary is executable
+  file:
+    path: /usr/local/bin/terraform
+    mode: '0755'
+
+- name: Download lazygit binary
+  get_url:
+    url: "https://github.com/jesseduffield/lazygit/releases/download/v{{ VERSION }}/lazygit_{{ VERSION }}_Linux_x86_64.tar.gz"
+    dest: /tmp/lazygit.tar.gz
+  vars:
+    VERSION: "0.43.1"
+
+- name: Unarchive lazygit binary
+  unarchive:
+    src: /tmp/lazygit.tar.gz
+    dest: /usr/local/bin/
+    remote_src: yes
+
+- name: Ensure lazygit is executable
+  file:
+    path: /usr/local/bin/lazygit
+    mode: '0755'
+
+- name: Check if Bazecor is installed 
+  stat:
+    path: /usr/local/bin/Bazecor
+  register: bazecor_install
+
+- name: Download Bazecor AppImage
+  get_url:
+    url: "https://github.com/Dygmalab/Bazecor/releases/download/v1.4.3/Bazecor-1.4.3-x64.AppImage"
+    dest: /tmp/Bazecor.AppImage
+  when: not bazecor_install.stat.exists
+
+- name: Make Bazecor AppImage executable
+  file:
+    path: /tmp/Bazecor.AppImage
+    mode: '0755'
+  when: not bazecor_install.stat.exists
+
+- name: Move Bazecor AppImage to /usr/local/bin
+  command: mv /tmp/Bazecor.AppImage /usr/local/bin/Bazecor
+  when: not bazecor_install.stat.exists
+
+- name: Create desktop entry for Bazecor
+  copy:
+    dest: /usr/share/applications/bazecor.desktop
+    content: |
+      [Desktop Entry]
+      Version=1.0
+      Name=Bazecor
+      Comment=Configure Dygma keyboards
+      Exec=/usr/local/bin/Bazecor
+      Icon=/opt/bazecor/squashfs-root/usr/lib/bazecor/bazecor.png
+      Terminal=false
+      Type=Application
+      Categories=Utility;
+  when: not bazecor_install.stat.exists
+
+- name: Ensure SSSD is installed
+  apt:
+    name: sssd
+    state: present
+
+- name: Configure SSSD for Zsh as default shell
+  become: yes
+  lineinfile:
+    path: /etc/sssd/sssd.conf
+    regexp: '^default_shell ='
+    line: 'default_shell = /bin/zsh'
+    create: yes
+
+- name: Restart SSSD service to apply changes
+  become: yes
+  systemd:
+    name: sssd
+    state: restarted
+
+- name: Get latest kubectl version
+  shell: curl -L -s https://dl.k8s.io/release/stable.txt
+  register: kubectl_version
+
+- name: Download kubectl binary
+  get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_version.stdout }}/bin/linux/amd64/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: '0755'
+
+- name: Make kubectl executable
+  file:
+    path: /usr/local/bin/kubectl
+    mode: '0755'
+    state: file
+
+- name: Install SDKMAN!
+  shell: curl -s "https://get.sdkman.io" | bash
+  args:
+    executable: /bin/bash
+
+- name: Source SDKMAN! in shell
+  shell: source ~/.sdkman/bin/sdkman-init.sh
+  args:
+    executable: /bin/bash
+
+- name: Add SDKMAN! initialization to zshrc
+  lineinfile:
+    path: ~/.zshrc
+    line: 'source "$HOME/.sdkman/bin/sdkman-init.sh"'
+    state: present
+
+- name: Add SDKMAN! initialization to bashrc
+  lineinfile:
+    path: ~/.bashrc
+    line: 'source "$HOME/.sdkman/bin/sdkman-init.sh"'
+    state: present
+

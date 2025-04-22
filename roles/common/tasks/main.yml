@@ -60,7 +60,7 @@
     enabled: yes
     name: ssh
   when: ssh_config.changed
-   
+
 - name: apt ugrade
   apt:
     upgrade: yes

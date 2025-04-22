@@ -4,3 +4,7 @@ proxmox:
 proxmox_home_server:
   hosts:
     "192.168.0.4"
+ubuntu_marcel:
+  hosts:
+    "192.168.0.200"
+

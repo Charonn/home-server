@@ -1,55 +1,59 @@
 ---
 - name: Check if Docker network exists
+  tags: "immich"
   shell: docker network ls --filter name=^immich$ --format="{{ '{{.Name}}' }}"
   register: docker_network_ls
   changed_when: docker_network_ls.stdout == ""
 
 - name: Create Docker network
+  tags: "immich"
   command: docker network create immich
   when: docker_network_ls.stdout == ""
 
 - name: Create base directory
+  tags: "immich"
   file:
     path: "{{ immich_host_path }}"
     owner: deployment
     group: deployment
-    mode: 0770
+    mode: 0755
     state: directory
 
 - name: Create consume directory
+  tags: "immich"
   file:
     path: "{{ immich_host_path }}/upload"
-    owner: deployment
-    group: deployment
-    mode: 0770
+    owner: 1000
+    group: 1000
+    mode: 0755
     state: directory
 
 - name: Create data directory
+  tags: "immich"
   file:
     path: "{{ immich_host_path }}/data"
-    owner: deployment
-    group: deployment
-    mode: 0770
+    owner: 1000
+    group: 1000
+    mode: 0755
     state: directory
 
 - name: Ensure PostgreSQL user exists
+  tags: "immich"
   community.postgresql.postgresql_user:
     login_user: "postgres"
     login_password: "{{ postgres_password }}"
-    login_host: "postgres"
+    login_host: "localhost"
     login_port: "5432"
     name: "{{ immich_db_user }}"
     password: "{{ immich_db_password }}"
-    priv: "ALL"
-    db: "{{ immich_db_name }}"
     state: present
-    role_attr_flags: "CREATEDB,NOLOGIN"  # Adjust as needed
 
 - name: Ensure Immich database exists
+  tags: "immich"
   community.postgresql.postgresql_db:
     login_user: "postgres"
     login_password: "{{ postgres_password }}"
-    login_host: "postgres"
+    login_host: "localhost"
     login_port: "5432"
     name: "{{ immich_db_name }}"
     owner: "{{ immich_db_user }}"
@@ -59,7 +63,45 @@
     lc_ctype: "C"
     template: "template0"
 
+- name: Update apt and install pgvector in PostgreSQL container
+  tags: "immich"
+  community.docker.docker_container_exec:
+    container: "postgres"  # Replace with your container name
+    command: |
+      bash -c "apt-get update && apt-get install -y postgresql-17-pgvector"
+
+- name: Enable pgvector extension in the database
+  tags: "immich"
+  community.postgresql.postgresql_ext:
+    name: "vector"
+    db: "{{ immich_db_name }}"
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "localhost"
+
+- name: Create earthdistance extension as postgres
+  tags: "immich"
+  community.postgresql.postgresql_ext:
+    name: "earthdistance"
+    db: "{{ immich_db_name }}"
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "localhost"
+    state: present
+    cascade: yes
+
+- name: Create cube extension (required for earthdistance)
+  tags: "immich"
+  community.postgresql.postgresql_ext:
+    name: "cube"
+    db: "{{ immich_db_name }}"
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "localhost"
+    state: present
+
 - name: Create Immich server container
+  tags: "immich"
   docker_container:
     name: immich_server
     image: "ghcr.io/immich-app/immich-server:{{ immich_version }}"
@@ -73,6 +115,7 @@
       DB_PASSWORD: "{{ immich_db_password }}"
       DB_DATABASE_NAME: "immich"
       DB_PORT: "5432"
+      DB_VECTOR_EXTENSION: "pgvector"
 
       REDIS_HOSTNAME: "redis"  # Container name if in same Docker network
       REDIS_PORT: "6379"
@@ -96,6 +139,7 @@
     networks:
       - name: "immich"
       - name: "postgres"
+      - name: "db"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:2283/api/server-info || exit 1"]
       interval: 30s
@@ -107,9 +151,10 @@
     log_driver: "json-file"
 
 - name: Create Immich machine learning container
+  tags: "immich"
   community.docker.docker_container:
     name: immich_machine_learning
-    image: "ghcr.io/immich-app/immich-machine-learning:{{ IMMICH_VERSION }}"
+    image: "ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}"
     networks:
       - name: "immich"
     volumes:
@@ -117,36 +162,11 @@
       - "{{ immich_host_path }}/data:/usr/src/app/data"
     env:
       IMMICH_MACHINE_LEARNING_PORT: "3003"  # ML container's listening port
+      UPLOAD_LOCATION: "/usr/src/app/upload"  # Must match container volume mount
+      DATA_LOCATION: "/usr/src/app/data"     # For generated files (thumbnails, etc.)
     restart_policy: always
     labels:
       traefik.enable: "false"
-    log_options:
-      max-size: "12m"
-      max-file: "5"
-    log_driver: "json-file"
-
-- name: Ensure immich container is present
-  docker_container:
-    name: "immich"
-    image: "ghcr.io/immich-ngx/immich-ngx:{{ immich_version }}"
-    state: "started"
-    restart_policy: "unless-stopped"
-    volumes:
-      - "{{ immich_host_path }}/data:/usr/src/immich/data"
-      - "{{ immich_host_path }}/upload:/usr/src/immich/media"
-    env:
-      immich_REDIS: "redis://:{{ redis_password }}@redis:6379/1"
-      immich_DBENGINE: "mariadb"
-      immich_DBHOST: "{{ database_host_name }}"
-      immich_DBUSER: "{{ immich_db_user }}"
-      immich_DBPASS: "{{ immich_db_password }}"
-      immich_DBPORT: "{{ database_port }}"
-    labels:
-      traefik.enable: "false"
-    networks:
-      - name: "db"
-    ports:
-      - "8000:8000"
     log_options:
       max-size: "12m"
       max-file: "5"
