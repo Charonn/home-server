@@ -1,22 +1,17 @@
 ---
-- name: Create directories for paperless volumes
+- name: Create directories for Beszel volumes
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    owner: 1000
-    group: 1000
-    mode: '0770'
+    mode: '0755'
   loop:
-    - "{{ paperless_host_path }}/consume"
-    - "{{ paperless_host_path }}/data"
-    - "{{ paperless_host_path }}/export"
-    - "{{ paperless_host_path }}/media"
-    - "{{ paperless_host_path }}/tailscale/config"
-    - "{{ paperless_host_path }}/tailscale/state"
+    - "{{ beszel_host_path }}/beszel_data"
+    - "{{ beszel_host_path }}/beszel_socket"
+    - "{{ beszel_host_path }}/tailscale/config"
 
 - name: Create static Tailscale serve configuration
   ansible.builtin.copy:
-    dest: "{{ paperless_host_path }}/tailscale/config/config.json"
+    dest: "{{ beszel_host_path }}/tailscale/config/config.json"
     content: |
       {
         "TCP": {
@@ -28,7 +23,7 @@
           "${TS_CERT_DOMAIN}:443": {
             "Handlers": {
               "/": {
-                "Proxy": "http://127.0.0.1:8000"
+                "Proxy": "http://127.0.0.1:8090"
               }
             }
           }
@@ -41,25 +36,24 @@
 
 - name: Deploy compose template
   ansible.builtin.template:
-    src: paperless/compose.yml.j2
-    dest: "{{ paperless_host_path }}/compose.yml"
+    src: beszel/compose.yml.j2
+    dest: "{{ beszel_host_path }}/compose.yml"
     mode: '0644'
   notify: "Restart Docker Compose stack"
   vars:
-    docker_compose_project_src: "{{ paperless_host_path }}"
+    docker_compose_project_src: "{{ beszel_host_path }}"
   register: template_result
 
 - name: Ensure Docker Compose stack is running
   community.docker.docker_compose_v2:
-    project_src: "{{ paperless_host_path }}"
+    project_src: "{{ beszel_host_path }}"
     state: present
     recreate: "{{ 'always' if force_restart | default(false) else 'never' }}"
   register: compose_output
-  async: 30
+  async: 10
   poll: 5
 
 - name: Set compose project src fact
   ansible.builtin.set_fact:
-    docker_compose_project_src: "{{ paperless_host_path }}"
+    docker_compose_project_src: "{{ beszel_host_path }}"
   when: template_result.changed
-

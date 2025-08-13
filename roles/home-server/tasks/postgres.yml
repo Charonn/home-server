@@ -10,84 +10,83 @@
   command: docker network create postgres
   when: docker_network_ls.stdout == ""
 
-- name: Create base directory
-  tags: "postgres"
-  file:
-    path: "{{ postgres_host_path }}"
-    owner: deployment
-    group: deployment
-    mode: 0770
+- name: Create directories for postgres volumes
+  ansible.builtin.file:
+    path: "{{ item }}"
     state: directory
+    owner: 1000
+    group: 1000
+  loop:
+    - "{{ postgres_host_path }}/tailscale/config"
+    - "{{ postgres_host_path }}/tailscale/state"
 
-- name: Create data directory
-  tags: "postgres"
-  file:
-    path: "{{ postgres_host_path }}/data"
+
+- name: Create directories for postgres volumes
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
     owner: 999
-    group: deployment
-    mode: 0775
-    state: directory
+    group: 999
+  loop:
+    - "{{ postgres_host_path }}/data"
 
-- name: Create pgadmin directory
-  tags: "postgres"
-  file:
-    path: "{{ postgres_host_path }}/pgadmin-data"
+
+- name: Create directories for postgres volumes
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
     owner: 5050
-    group: deployment
-    mode: 0775
-    state: directory
+    group: 1000
+  loop:
+    - "{{ postgres_host_path }}/pgadmin-data"
 
-- name: Ensure postgres container is present
-  tags: "postgres"
-  docker_container:
-    name: "postgres"
-    image: "postgres:{{ postgres_version }}"
-    state: "started"
-    restart_policy: "unless-stopped"
-    volumes:
-      - "{{ postgres_host_path }}/data:/var/lib/postgresql/data"
-    env:
-      POSTGRES_HOST_AUTH_METHOD: "md5"
-      POSTGRES_PASSWORD: "{{ postgres_password }}"
-      POSTGRES_DB: "default"
-      POSTGRES_USER: "postgres"
-    labels:
-      traefik.enable: "false"
-    networks:
-      - name: "postgres" 
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready", "-d", "default"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 80s
-    log_options:
-      max-size: "12m"
-      max-file: "5"
-    log_driver: "json-file"
 
-- name: Ensure pgadmin container is present
-  tags: "postgres"
-  docker_container:
-    name: "pgadmin"
-    image: "dpage/pgadmin4"
-    state: "started"
-    restart_policy: "unless-stopped"
-    volumes:
-      - "{{ postgres_host_path }}/pgadmin-data:/var/lib/pgadmin/"
-    env:
-      PGADMIN_DEFAULT_EMAIL: "{{ pg_default_email }}"
-      PGADMIN_DEFAULT_PASSWORD: "{{ pg_default_password }}"
-      PGADMIN_LISTEN_PORT: "80"
-    labels:
-      traefik.enable: "false"
-    networks:
-      - name: "postgres"
-    ports:
-      - "15432:80"
-    log_options:
-      max-size: "12m"
-      max-file: "5"
-    log_driver: "json-file"
+- name: Create static Tailscale serve configuration
+  ansible.builtin.copy:
+    dest: "{{ postgres_host_path }}/tailscale/config/config.json"
+    content: |
+      {
+        "TCP": {
+          "443": {
+            "HTTPS": true
+          }
+        },
+        "Web": {
+          "${TS_CERT_DOMAIN}:443": {
+            "Handlers": {
+              "/": {
+                "Proxy": "http://127.0.0.1:80"
+              }
+            }
+          }
+        },
+        "AllowFunnel": {
+          "${TS_CERT_DOMAIN}:443": false
+        }
+      }
+    mode: '0644'
+
+- name: Deploy compose template
+  ansible.builtin.template:
+    src: postgres/compose.yml.j2
+    dest: "{{ postgres_host_path }}/compose.yml"
+    mode: '0644'
+  notify: "Restart Docker Compose stack"
+  vars:
+    docker_compose_project_src: "{{ postgres_host_path }}"
+  register: template_result
+
+- name: Ensure Docker Compose stack is running
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgres_host_path }}"
+    state: present
+    recreate: "{{ 'always' if force_restart | default(false) else 'never' }}"
+  register: compose_output
+  async: 30
+  poll: 5
+
+- name: Set compose project src fact
+  ansible.builtin.set_fact:
+    docker_compose_project_src: "{{ postgres_host_path }}"
+  when: template_result.changed
+

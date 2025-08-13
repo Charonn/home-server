@@ -1,0 +1,204 @@
+---
+# Update system packages
+- name: Update apt package index
+  apt:
+    update_cache: yes
+
+# Install prerequisites
+- name: Install required packages
+  apt:
+    name:
+      - curl
+      - gnupg
+      - software-properties-common
+      - apt-transport-https
+    state: present
+
+# Add CrowdSec repository
+- name: Add CrowdSec GPG key
+  apt_key:
+    url: "https://packagecloud.io/crowdsec/crowdsec/gpgkey"
+    state: present
+
+- name: Add CrowdSec repository
+  apt_repository:
+    repo: "deb https://packagecloud.io/crowdsec/crowdsec/debian/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: crowdsec
+
+# Install CrowdSec
+- name: Install CrowdSec
+  apt:
+    name:
+      - crowdsec
+      - crowdsec-firewall-bouncer-iptables
+    state: present
+    update_cache: yes
+
+# Configure CrowdSec for SSH protection
+- name: Configure SSH collection
+  command: "cscli collections install crowdsecurity/sshd"
+  register: ssh_collection
+  changed_when: "'already installed' not in ssh_collection.stdout"
+
+- name: Parse SSH logs
+  command: "cscli parsers install crowdsecurity/sshd-logs"
+  register: ssh_parser
+  changed_when: "'already installed' not in ssh_parser.stdout"
+
+# Configure CrowdSec for Traefik protection
+- name: Install Traefik collection
+  command: "cscli collections install crowdsecurity/traefik"
+  register: traefik_collection
+  changed_when: "'already installed' not in traefik_collection.stdout"
+
+- name: Configure Traefik log acquisition
+  copy:
+    dest: /etc/crowdsec/acquis.yaml
+    content: |
+      filenames:
+        - /var/log/nginx/*.log
+        - ./tests/nginx/nginx.log
+      #this is not a syslog log, indicate which kind of logs it is
+      labels:
+        type: nginx
+      ---
+      filenames:
+      - /var/log/auth.log
+      - /var/log/syslog
+      labels:
+        type: syslog
+      ---
+      filename: /var/log/apache2/*.log
+      labels:
+        type: apache2
+      ---
+      filename: /opt/traefik/log/access.log
+      labels:
+        type: traefik
+    owner: root
+    group: root
+    mode: 0640
+
+# Install Docker bouncer if needed
+- name: Install Docker bouncer
+  command: "cscli bouncers add docker-bouncer"
+  register: docker_bouncer
+  changed_when: "'already exists' not in docker_bouncer.stdout"
+  when: "'docker' in group_names"
+
+- name: Replace API port in config
+  replace:
+    path: /etc/crowdsec/config.yaml
+    regexp: '127.0.0.1:8080'
+    replace: '127.0.0.1:{{ crowdsec_api_port }}'
+  register: port_change
+
+- name: Replace API port in config
+  replace:
+    path: /etc/crowdsec/local_api_credentials.yaml
+    regexp: '127.0.0.1:8080'
+    replace: '127.0.0.1:{{ crowdsec_api_port }}'
+  register: port_change
+
+
+- name: Update scenarios database
+  command: cscli hub update
+  changed_when: false
+
+- name: Upgrade installed collections
+  command: cscli hub upgrade
+  changed_when: false
+
+
+- name: Enable and restart CrowdSec
+  systemd:
+    name: crowdsec
+    enabled: yes
+    state: restarted
+
+- name: Create bouncer config directory
+  file:
+    path: /etc/crowdsec/bouncers/
+    state: directory
+    mode: 0750
+
+- name: Delete existing bouncer
+  command: cscli bouncers delete firewall-bouncer
+  ignore_errors: yes
+  register: bouncer_delete
+  changed_when: "'not found' not in bouncer_delete.stderr"
+
+
+- name: Generate bouncer key
+  command: cscli bouncers add firewall-bouncer -o raw
+  register: bouncer_key
+  changed_when: true
+
+
+- name: Generate firewall bouncer config
+  copy:
+    dest: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+    content: |
+      api_url: http://127.0.0.1:{{ crowdsec_api_port }}/  # Trailing slash required!
+      api_key: "{{ bouncer_key.stdout }}"
+      log_level: info
+      mode: stream
+      update_frequency: 10s
+      firewall_mode: iptables  # Use 'nftables' if on newer systems
+      deny_action: DROP        # Or 'REJECT' if you prefer
+      blacklists_ipv4: crowdsec-blacklists
+      # For Docker/Traefik protection:
+      detected_flow_type: all
+      # For SSH protection:
+      enable_ipv6: false       # Disable if not using IPv6
+      pid_dir: /var/run/
+      log_dir: /var/log/
+    owner: root
+    group: root
+    mode: 0640
+
+- name: Enable and restart firewall bouncer
+  systemd:
+    name: crowdsec-firewall-bouncer
+    enabled: yes
+    state: restarted
+
+- name: Check CrowdSec status
+  command: cscli version
+  register: crowdsec_version_check
+  changed_when: false
+
+- name: Enable and start CrowdSec service
+  systemd:
+    name: crowdsec
+    enabled: yes
+    state: restarted
+
+- name: Enable and start firewall bouncer service
+  systemd:
+    name: crowdsec-firewall-bouncer
+    enabled: yes
+    state: restarted
+
+- name: Update scenarios
+  command: cscli hub update
+  changed_when: false
+
+- name: Upgrade CrowdSec if needed
+  command: cscli hub upgrade
+  changed_when: false
+
+- name: Restart CrowdSec if config changed
+  systemd:
+    name: crowdsec
+    state: restarted
+  when: port_change.changed
+
+
+
+- name: Ensure bouncer service is enabled
+  systemd:
+    name: crowdsec-firewall-bouncer
+    enabled: yes
+    state: restarted

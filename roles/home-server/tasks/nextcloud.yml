@@ -18,47 +18,64 @@
 #     find {{ nextcloud_html_host_path }} -type f -exec chmod 640 {} \;
 #     find {{ nextcloud_data_host_path }} -type f -exec chmod 640 {} \;
 
-- name: Ensure nextcloud-app container is present
-  tags: "nextcloud"
-  docker_container:
-    name: nextcloud-app
-    image: nextcloud:{{ nextcloud_version }}
-    state: started
-    restart_policy: unless-stopped
-    volumes:
-      - "{{ nextcloud_html_host_path }}:/var/www/html"
-      - "{{ nextcloud_data_host_path }}:/var/www/html/data"
-    env:
-      REDIS_HOST: redis
-      REDIS_HOST_PASSWORD: "{{ redis_password }}"
-      NEXTCLOUD_HOSTNAME: "{{ host }}"
-      MYSQL_HOST: "mariadb"
-      MYSQL_USER: "nextcloud"
-      MYSQL_PASSWORD: "{{ mysql_nextcloud_password }}"
-    labels:
-      traefik.enable: "true"
-      traefik.port: "80"
-      traefik.docker.network: traefik
-      traefik.http.routers.cloud.rule: "Host(`{{ host }}`) && PathPrefix(`/`)"
-      traefik.http.routers.cloud.tls.certresolver: letsencrypt
-      traefik.http.routers.cloud.middlewares: "cloud@docker,cloud-dav@docker,redirect-to-https@docker"
-      traefik.http.middlewares.cloud.headers.customFrameOptionsValue: SAMEORIGIN
-      traefik.http.middlewares.cloud.headers.framedeny: "true"
-      traefik.http.middlewares.cloud.headers.sslredirect: "true"
-      traefik.http.middlewares.cloud.headers.stsIncludeSubdomains: "true"
-      traefik.http.middlewares.cloud.headers.stsPreload: "true"
-      traefik.http.middlewares.cloud.headers.stsSeconds: "15552000"
-      traefik.http.middlewares.cloud-dav.replacepathregex.regex: "^/.well-known/ca(l|rd)dav"
-      traefik.http.middlewares.cloud-dav.replacepathregex.replacement: "/remote.php/dav/"
-    networks:
-      - name: traefik
-      - name: db
-    ports:
-      - "81:80"
-    log_options:
-      max-size: '12m'
-      max-file: '5'
-    log_driver: json-file
+- name: Create directories for nextcloud volumes
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: 1000
+    group: 1000
+  loop:
+    - "{{ nextcloud_host_path }}/tailscale/config"
+    - "{{ nextcloud_host_path }}/tailscale/state"
+
+- name: Create static Tailscale serve configuration
+  ansible.builtin.copy:
+    dest: "{{ nextcloud_host_path }}/tailscale/config/config.json"
+    content: |
+      {
+        "TCP": {
+          "443": {
+            "HTTPS": true
+          }
+        },
+        "Web": {
+          "${TS_CERT_DOMAIN}:443": {
+            "Handlers": {
+              "/": {
+                "Proxy": "http://127.0.0.1:80"
+              }
+            }
+          }
+        },
+        "AllowFunnel": {
+          "${TS_CERT_DOMAIN}:443": false
+        }
+      }
+    mode: '0644'
+
+- name: Deploy compose template
+  ansible.builtin.template:
+    src: nextcloud/compose.yml.j2
+    dest: "{{ nextcloud_host_path }}/compose.yml"
+    mode: '0644'
+  notify: "Restart Docker Compose stack"
+  vars:
+    docker_compose_project_src: "{{ nextcloud_host_path }}"
+  register: template_result
+
+- name: Ensure Docker Compose stack is running
+  community.docker.docker_compose_v2:
+    project_src: "{{ nextcloud_host_path }}"
+    state: present
+    recreate: "{{ 'always' if force_restart | default(false) else 'never' }}"
+  register: compose_output
+  async: 30
+  poll: 5
+
+- name: Set compose project src fact
+  ansible.builtin.set_fact:
+    docker_compose_project_src: "{{ nextcloud_host_path }}"
+  when: template_result.changed
 
 - name: "Add nextcloud cron"
   tags: "nextcloud"
@@ -67,5 +84,5 @@
     name: "start nextcloud cron"
     minute: "5"
     hour: "*"
-    job: "docker exec -u www-data nextcloud-app php /var/www/html/cron.php"
+    job: "docker exec -u www-data nextcloud-app2 php /var/www/html/cron.php"
 

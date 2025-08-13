@@ -1,7 +1,11 @@
 ---
-- name: "tailscale"
-  include_tasks: "tailscale.yml"
-  tags: "tailscale"
+- name: "base"
+  include_tasks: "base.yml"
+# - name: "crowdsec"
+#   include_tasks: "crowdsec.yml"
+# - name: "tailscale"
+#   include_tasks: "tailscale.yml"
+#   tags: "tailscale"
 - name: "noip"
   include_tasks: "noip.yml"
 - name: "traefik"
@@ -26,3 +30,5 @@
   include_tasks: "immich.yml"
   tags:
     - "immich"
+- name: "beszel"
+  include_tasks: "beszel.yml"

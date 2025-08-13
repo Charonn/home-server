@@ -10,34 +10,20 @@
   command: docker network create immich
   when: docker_network_ls.stdout == ""
 
-- name: Create base directory
-  tags: "immich"
-  file:
-    path: "{{ immich_host_path }}"
-    owner: deployment
-    group: deployment
-    mode: 0755
-    state: directory
-
-- name: Create consume directory
-  tags: "immich"
-  file:
-    path: "{{ immich_host_path }}/upload"
+- name: Create required subdirectories
+  ansible.builtin.file:
+    path: "{{ immich_host_path }}/{{ item }}"
     owner: 1000
     group: 1000
-    mode: 0755
+    mode: '0755'
     state: directory
+  loop:
+    - immich
+    - ml
+    - tailscale/config
+    - tailscale/state
 
-- name: Create data directory
-  tags: "immich"
-  file:
-    path: "{{ immich_host_path }}/data"
-    owner: 1000
-    group: 1000
-    mode: 0755
-    state: directory
-
-- name: Ensure PostgreSQL user exists
+- name: Ensure postgresql user exists
   tags: "immich"
   community.postgresql.postgresql_user:
     login_user: "postgres"
@@ -58,28 +44,62 @@
     name: "{{ immich_db_name }}"
     owner: "{{ immich_db_user }}"
     state: present
-    encoding: "UTF8"
-    lc_collate: "C"
-    lc_ctype: "C"
-    template: "template0"
 
-- name: Update apt and install pgvector in PostgreSQL container
+- name: Grant additional permissions to immich user (including vector extension)
   tags: "immich"
-  community.docker.docker_container_exec:
-    container: "postgres"  # Replace with your container name
-    command: |
-      bash -c "apt-get update && apt-get install -y postgresql-17-pgvector"
-
-- name: Enable pgvector extension in the database
-  tags: "immich"
-  community.postgresql.postgresql_ext:
-    name: "vector"
-    db: "{{ immich_db_name }}"
+  community.postgresql.postgresql_privs:
     login_user: "postgres"
     login_password: "{{ postgres_password }}"
     login_host: "localhost"
+    login_port: "5432"
+    database: "{{ immich_db_name }}"
+    roles: "{{ immich_db_user }}"
+    privs: "ALL"
+    type: "database"
+    grant_option: yes
 
-- name: Create earthdistance extension as postgres
+- name: Create vector extension if needed
+  tags: "immich"
+  community.postgresql.postgresql_ext:
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "localhost"
+    login_port: "5432"
+    name: "vector"
+    db: "{{ immich_db_name }}"
+    state: present
+
+- name: Grant immich user read access to pg_authid (for backups)
+  tags: "immich"
+  community.postgresql.postgresql_privs:
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "localhost"
+    login_port: "5432"
+    database: "postgres"  # System tables are in the postgres database
+    roles: "{{ immich_db_user }}"
+    privs: "SELECT"
+    objs: "pg_authid"
+    type: "table"
+    schema: "pg_catalog"  # This is the critical change
+    state: "present"
+
+- name: Grant read access to all tables in pg_catalog
+  tags: "immich"
+  community.postgresql.postgresql_privs:
+    login_user: "postgres"
+    login_password: "{{ postgres_password }}"
+    login_host: "localhost"
+    login_port: "5432"
+    database: "postgres"
+    roles: "{{ immich_db_user }}"
+    privs: "SELECT"
+    objs: "ALL_IN_SCHEMA"
+    type: "table"
+    schema: "pg_catalog"
+    state: "present"
+
+- name: Create earthdistance extension as immich
   tags: "immich"
   community.postgresql.postgresql_ext:
     name: "earthdistance"
@@ -87,6 +107,7 @@
     login_user: "postgres"
     login_password: "{{ postgres_password }}"
     login_host: "localhost"
+    login_port: "5432"
     state: present
     cascade: yes
 
@@ -98,76 +119,56 @@
     login_user: "postgres"
     login_password: "{{ postgres_password }}"
     login_host: "localhost"
+    login_port: "5432"
     state: present
 
-- name: Create Immich server container
-  tags: "immich"
-  docker_container:
-    name: immich_server
-    image: "ghcr.io/immich-app/immich-server:{{ immich_version }}"
-    volumes:
-      - "{{ immich_host_path }}/upload:/usr/src/app/upload"
-      - "{{ immich_host_path }}/data:/usr/src/app/data"
-      - "/etc/localtime:/etc/localtime:ro"
-    env: 
-      DB_HOSTNAME: "{{ postgres_database_host_name }}"  # "postgres" if using container name
-      DB_USERNAME: "{{ immich_db_user }}"
-      DB_PASSWORD: "{{ immich_db_password }}"
-      DB_DATABASE_NAME: "immich"
-      DB_PORT: "5432"
-      DB_VECTOR_EXTENSION: "pgvector"
+- name: Create static Tailscale serve configuration
+  ansible.builtin.copy:
+    dest: "{{ immich_host_path }}/tailscale/config/immich.json"
+    content: |
+      {
+        "TCP": {
+          "443": {
+            "HTTPS": true
+          }
+        },
+        "Web": {
+          "${TS_CERT_DOMAIN}:443": {
+            "Handlers": {
+              "/": {
+                "Proxy": "http://127.0.0.1:80"
+              }
+            }
+          }
+        },
+        "AllowFunnel": {
+          "${TS_CERT_DOMAIN}:443": false
+        }
+      }
+    mode: '0644'
 
-      REDIS_HOSTNAME: "redis"  # Container name if in same Docker network
-      REDIS_PORT: "6379"
-      REDIS_PASSWORD: "{{ redis_password }}"
-      REDIS_DBINDEX: "1"  # Optional: if you want specific Redis DB
 
-      UPLOAD_LOCATION: "/usr/src/app/upload"  # Must match container volume mount
-      DATA_LOCATION: "/usr/src/app/data"     # For generated files (thumbnails, etc.)
+- name: Deploy compose template
+  ansible.builtin.template:
+    src: immich/compose.yml.j2
+    dest: "{{ immich_host_path }}/compose.yml"
+    mode: '0644'
+  notify: "Restart Docker Compose stack"
+  vars:
+    docker_compose_project_src: "{{ immich_host_path }}"
+  register: template_result
 
-      NODE_ENV: "production"
-      IMMICH_PORT: "2283"
-      IMMICH_MACHINE_LEARNING_URL: "http://immich_machine_learning:3003"
+- name: Ensure Docker Compose stack is running
+  community.docker.docker_compose_v2:
+    project_src: "{{ immich_host_path }}"
+    state: present
+    recreate: "{{ 'always' if force_restart | default(false) else 'never' }}"
+  register: compose_output
+  async: 30
+  poll: 5
 
-      # Optional but Recommended
-      DISABLE_REVERSE_GEOCODING: "false"  # Set true if not using map features
-      TYPESENSE_ENABLED: "false"          # Set true if using Typesense search
-      LOG_LEVEL: "log" 
-    ports:
-      - "2283:2283"
-    restart_policy: always
-    networks:
-      - name: "immich"
-      - name: "postgres"
-      - name: "db"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:2283/api/server-info || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    log_options:
-      max-size: "12m"
-      max-file: "5"
-    log_driver: "json-file"
+- name: Set compose project src fact
+  ansible.builtin.set_fact:
+    docker_compose_project_src: "{{ immich_host_path }}"
+  when: template_result.changed
 
-- name: Create Immich machine learning container
-  tags: "immich"
-  community.docker.docker_container:
-    name: immich_machine_learning
-    image: "ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}"
-    networks:
-      - name: "immich"
-    volumes:
-      - "{{ immich_host_path }}/model-cache:/cache"
-      - "{{ immich_host_path }}/data:/usr/src/app/data"
-    env:
-      IMMICH_MACHINE_LEARNING_PORT: "3003"  # ML container's listening port
-      UPLOAD_LOCATION: "/usr/src/app/upload"  # Must match container volume mount
-      DATA_LOCATION: "/usr/src/app/data"     # For generated files (thumbnails, etc.)
-    restart_policy: always
-    labels:
-      traefik.enable: "false"
-    log_options:
-      max-size: "12m"
-      max-file: "5"
-    log_driver: "json-file"

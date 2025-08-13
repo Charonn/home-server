@@ -1,34 +1,93 @@
 ---
 
-- name: "Create data dir"
-  file:
-    path: "/home/marcel/pihole/pihole"
-    state: "directory"
-    mode: "0775"
+- name: Create required subdirectories
+  ansible.builtin.file:
+    path: "/opt/pihole/{{ item }}"
+    mode: '0755'
+    state: directory
+  loop:
+    - dnsmasq.d
+    - tailscale/config
+    - pihole
 
-- name: "Create data dir"
-  file:
-    path: "/home/marcel/pihole/dnsmasq.d"
-    state: "directory"
-    mode: "0775"
+- name: Check if Docker network exists
+  shell: docker network ls --filter name=^pihole$ --format="{{ '{{.Name}}' }}"
+  register: docker_network_ls
+  changed_when: docker_network_ls.stdout == ""
+
+- name: Create Docker network
+  command: docker network create pihole
+  when: docker_network_ls.stdout == ""
+
+- name: Create static Tailscale serve configuration
+  ansible.builtin.copy:
+    dest: "/opt/pihole/tailscale/config/pihole.json"
+    content: |
+      {
+        "TCP": {
+          "443": {
+            "HTTPS": true
+          }
+        },
+        "Web": {
+          "${TS_CERT_DOMAIN}:443": {
+            "Handlers": {
+              "/": {
+                "Proxy": "http://pihole:8888/admin"
+              }
+            }
+          }
+        },
+        "AllowFunnel": {
+          "${TS_CERT_DOMAIN}:443": false
+        }
+      }
+    mode: '0644'
+
+- name: Deploy Tailscale container for pihole
+  community.docker.docker_container:
+    name: ts-pihole
+    image: tailscale/tailscale:latest
+    state: started
+    networks:
+      - name: pihole
+    restart_policy: unless-stopped
+    hostname: pihole
+    capabilities:
+      - net_admin
+      - sys_module
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    env:
+      TS_AUTHKEY: "{{ tailscale_auth_key }}"
+      TS_EXTRA_ARGS: "--advertise-tags=tag:container"
+      TS_SERVE_CONFIG: "/config/pihole.json"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_USERSPACE: "true"
+    volumes:
+      - "/opt/pihole/tailscale/state:/var/lib/tailscale"
+      - "/opt/pihole/tailscale/config:/config"
 
 - name: Ensure pihole container is present
   docker_container:
     name: "pihole"
-    image: "pihole/pihole:2023.05.2"
+    image: "pihole/pihole:2025.06.2"
     state: "started"
-    network_mode: "host"
     dns_servers:
       - "127.0.0.1"
       - "1.1.1.1"
+    ports:
+      - "8888:8888"
+      - "53:53/tcp"
+      - "53:53/udp"
+    networks:
+      - name: pihole
     env:
-      ServerIP: "192.168.0.4"
+      ServerIP: "192.168.0.182"
       TZ: "Europe/Berlin"
       WEBPASSWORD: "{{ pihole_password }}"
-      INTERFACE: 'enp4s11'
-      WEB_BIND_ADDR: "192.168.0.4"
-      DNSMASQ_LISTENING: "all"
-      WEB_PORT: "9116"
+      FTLCONF_dns_listeningMode: "all"
+      WEB_PORT: "8888"
       INSTALL_WEB_SERVER: "true"
       INSTALL_WEB_INTERFACE: "true"
       PIHOLE_INTERFACE: "enp4s11"
@@ -49,8 +108,9 @@
       DNSSEC: "false"
       REV_SERVER: "false"
     volumes:
-      - "/home/marcel/pihole/pihole:/etc/pihole"
-      - "/home/marcel/pihole/dnsmasq.d:/etc/dnsmasq.d"
+      - "/opt/pihole/pihole:/etc/pihole"
+      - "/opt/pihole/dnsmasq.d:/etc/dnsmasq.d"
     capabilities:
       - NET_ADMIN
     restart_policy: unless-stopped
+

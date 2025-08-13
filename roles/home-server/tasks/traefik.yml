@@ -39,6 +39,7 @@
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "{{ traefik_path }}/acme.json:/acme.json"
+      - "/opt/traefik/log/:/var/log/traefik"
     command:
       - "--api=true"
       - "--api.dashboard=true"
@@ -52,6 +53,10 @@
       - "--certificatesresolvers.letsencrypt.acme.storage=/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
       # - "--certificatesresolvers.letsencrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"
+      # Access log configuration (add these lines)
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--accesslog.format=json"
     labels:
       "traefik.enable": "true"
       "traefik.http.routers.dashboard.rule": "Host(`{{ host }}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"

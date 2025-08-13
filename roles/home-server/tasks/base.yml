@@ -1,11 +1,5 @@
 ---
 
-# - name: Ensure Docker SDK for Python is installed
-#   become: yes
-#   ansible.builtin.pip:
-#     name: docker
-#     executable: pip3
-
 - name: Install python3-docker (system package)
   become: yes
   ansible.builtin.apt:
