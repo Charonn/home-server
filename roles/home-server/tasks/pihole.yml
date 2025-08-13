@@ -8,7 +8,15 @@
   loop:
     - dnsmasq.d
     - tailscale/config
+
+- name: Create required subdirectories
+  ansible.builtin.file:
+    path: "/opt/pihole/{{ item }}"
+    mode: '0775'
+    state: directory
+  loop:
     - pihole
+
 
 - name: Check if Docker network exists
   shell: docker network ls --filter name=^pihole$ --format="{{ '{{.Name}}' }}"

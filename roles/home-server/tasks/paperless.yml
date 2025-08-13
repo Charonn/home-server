@@ -12,6 +12,15 @@
     - "{{ paperless_host_path }}/export"
     - "{{ paperless_host_path }}/media"
     - "{{ paperless_host_path }}/tailscale/config"
+
+- name: Create directories for paperless volumes
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: 1000
+    group: 1000
+    mode: '0700'
+  loop:
     - "{{ paperless_host_path }}/tailscale/state"
 
 - name: Create static Tailscale serve configuration
