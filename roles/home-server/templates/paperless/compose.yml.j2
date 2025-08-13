@@ -1,0 +1,55 @@
+services:
+  ts-paperless:
+    image: tailscale/tailscale:latest
+    container_name: ts-paperless
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: "{{ tailscale_auth_key }}"
+      TS_EXTRA_ARGS: "--hostname=paperless --advertise-tags=tag:container"
+      TS_SERVE_CONFIG: "/config/config.json"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_USERSPACE: "true"
+    volumes:
+      - "{{ paperless_host_path }}/tailscale/state:/var/lib/tailscale"
+      - "{{ paperless_host_path }}/tailscale/config:/config"
+    network_mode: service:paperless
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:{{ paperless_version }}
+    container_name: paperless2
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - 8000:8000
+    networks:
+      - db
+    volumes:
+      - "{{ paperless_host_path }}/data:/usr/src/paperless/data"
+      - "{{ paperless_host_path }}/media:/usr/src/paperless/media"
+      - "{{ paperless_host_path }}/export:/usr/src/paperless/export"
+      - "{{ paperless_host_path }}/consume:/usr/src/paperless/consume"
+    environment:
+      - PAPERLESS_REDIS=redis://:{{ redis_password }}@redis:6379/1
+      - PAPERLESS_DBENGINE=mariadb
+      - PAPERLESS_DBHOST={{ database_host_name }}
+      - PAPERLESS_DBUSER={{ paperless_db_user }}
+      - PAPERLESS_DBPASS={{ paperless_db_password }}
+      - PAPERLESS_DBPORT={{ database_port }}
+      - PAPERLESS_ALLOWED_HOSTS={{paperless_allowed_hosts }}
+      - PAPERLESS_CSRF_TRUSTED_ORIGINS={{ paperless_trusted_origins }}
+    labels:
+      - traefik.enable=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: 12m
+        max-file: "5"
+
+networks:
+  db:
+    external: true

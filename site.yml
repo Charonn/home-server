@@ -30,3 +30,18 @@
   roles:
     - role: common
     - role: ubuntu
+    - role: sunshine
+
+- hosts: ryzen_home_server
+  become: yes
+  roles:
+    - role: common
+    - role: "home-server"
+      tags:
+        - "home-server"
+
+- hosts: proxmox_ryzen
+  become: yes
+  roles:
+    - role: proxmox_host
+

@@ -11,4 +11,23 @@ mysql_nextcloud_password: "{{ mysql_nextcloud_password_vault }}"
 redis_password: "{{ redis_password_vault }}"
 
 grafana_admin_password: "{{ grafana_admin_password_vault }}"
-ansible_python_interpreter: /usr/bin/python3
+
+mail_relay_host: "{{ mail_relay_host_vault }}"
+mail_relay_port: "{{ mail_relay_port_vault }}"
+mail_relay_username: "{{ mail_relay_username_vault }}"
+mail_relay_password: "{{ mail_relay_password_vault }}"
+mail_from_address: "{{ mail_from_address_vault }}"
+mail_domain: "{{ mail_domain_vault }}"
+
+tailscale_beszel_auth_key: "{{ tailscale_beszel_auth_key_vault }}"
+tailscale_auth_key: "{{ tailscale_auth_key_vault }}"
+
+paperless_version: "{{ paperless_version_vault }}"
+paperless_allowed_hosts: "{{ paperless_allowed_hosts_vault }}"
+paperless_trusted_origins: "{{ paperless_trusted_origins_vault }}"
+
+nextcloud_host_path: "{{ nextcloud_host_path_vault }}"
+
+traefik_log_path: "{{ traefik_log_path_vault }}"  # Update this to your Traefik log path
+crowdsec_api_port: "{{ crowdsec_api_port_vault }}"
+

@@ -96,9 +96,6 @@
       - icu-devtools
       - iftop
       - iio-sensor-proxy
-      - initramfs-tools
-      - initramfs-tools-bin
-      - initramfs-tools-core
       - inputattach
       - iotop
       - iptables
@@ -116,9 +113,6 @@
       - mc-data
       - meson
       - mkisofs
-      - mysql-client
-      - mysql-client-8.0
-      - mysql-client-core-8.0
       - mysql-common
       - ncmpcpp
       - net-tools
@@ -143,3 +137,12 @@
       - zsh
       - zsh-common
       - zstd
+
+- name: Run apt autoremove to clean up unused packages
+  apt:
+    autoremove: yes
+
+- name: Clean up apt cache
+  apt:
+    autoclean: yes
+

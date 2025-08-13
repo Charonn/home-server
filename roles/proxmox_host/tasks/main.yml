@@ -1,0 +1,74 @@
+---
+
+- name: Install required packages
+  apt:
+    name:
+      - postfix
+      - libsasl2-modules
+      - mailutils
+      - ca-certificates
+      - powertop
+    state: present
+    update_cache: yes
+
+- name: Configure Postfix main.cf
+  template:
+    src: postfix_main.cf.j2
+    dest: /etc/postfix/main.cf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Configure SASL authentication
+  template:
+    src: sasl_passwd.j2
+    dest: /etc/postfix/sasl_passwd
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Configure SASL sender_canonical_name
+  template:
+    src: sender_canonical_maps.j2
+    dest: /etc/postfix/sender_canonical_maps
+    owner: root
+    group: root
+
+- name: Configure SASL header_check
+  template:
+    src: header_check.j2
+    dest: /etc/postfix/header_check
+    owner: root
+    group: root
+
+- name: Create SASL password database
+  command: postmap /etc/postfix/sasl_passwd
+  when: not ansible_check_mode
+
+- name: Configure email aliases
+  lineinfile:
+    path: /etc/aliases
+    line: "root: {{ mail_from_address }}"
+    state: present
+
+- name: Update new aliases database
+  command: newaliases
+  when: not ansible_check_mode
+
+- name: Test email configuration
+  command: echo "Test email from Proxmox" | mail -s "Proxmox Email Test" root
+  when: not ansible_check_mode
+
+- name: Create cert
+  command: >
+          bash -c "cat /etc/ssl/certs/ssl-cert-snakeoil.pem | sudo tee -a /etc/postfix/cacert.pam"
+  become: yes
+
+- name: restart postfix
+  service:
+    name: postfix
+    state: restarted
+
+- name: run newaliases
+  command: newaliases
+  when: not ansible_check_mode

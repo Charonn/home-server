@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:32324a2f41df5de9efe1af166b7008c3f55646f8d0e00d9550c16c9822366b4a
+    container_name: postgres
+    restart: unless-stopped
+    volumes:
+      - "{{ postgres_host_path }}/data:/var/lib/postgresql/data"
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: md5
+      POSTGRES_PASSWORD: "{{ postgres_password }}"
+      POSTGRES_DB: default
+      POSTGRES_USER: postgres
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    networks:
+      - db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-d", "default"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
+    shm_size: 128mb
+    logging:
+      driver: json-file
+      options:
+        max-size: 12m
+        max-file: "5"
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: unless-stopped
+    volumes:
+      - "{{ postgres_host_path }}/pgadmin-data:/var/lib/pgadmin"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "{{ pg_default_email }}"
+      PGADMIN_DEFAULT_PASSWORD: "{{ pg_default_password }}"
+      PGADMIN_LISTEN_PORT: 80
+    networks:
+      - db
+    ports:
+      - "15432:80"
+    depends_on:
+      - postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: 12m
+        max-file: "5"
+
+  pgadmin-tailscale:
+    image: tailscale/tailscale
+    container_name: ts-pgadmin
+    restart: unless-stopped
+    volumes:
+      - "{{ postgres_host_path }}/tailscale/state:/var/lib/tailscale"
+      - "{{ postgres_host_path }}/tailscale/config:/config"
+    environment:
+      TS_AUTHKEY: "{{ tailscale_auth_key }}"
+      TS_EXTRA_ARGS: "--hostname=pgadmin --advertise-tags=tag:container"
+      TS_SERVE_CONFIG: "/config/config.json"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_USERSPACE: "true"
+    network_mode: "service:pgadmin"
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - pgadmin
+
+networks:
+  db:
+    external: true

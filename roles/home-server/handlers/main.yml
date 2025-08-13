@@ -1,0 +1,10 @@
+---
+
+- name: "Restart Docker Compose stack"
+  community.docker.docker_compose_v2:
+    project_src: "{{ docker_compose_project_src | mandatory }}"  # Required variable
+    state: present
+    recreate: always
+    remove_orphans: yes
+  async: 30
+  poll: 5

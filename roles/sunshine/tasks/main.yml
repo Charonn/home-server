@@ -1,0 +1,57 @@
+- name: Setup Steam and Moonlight Sunshine
+  block:
+    - name: Install Steam
+      apt:
+        name: steam
+        state: present
+
+    # Install prerequisites
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - flatpak
+          - policykit-1
+        state: present
+
+    # Configure Flatpak
+    - name: Add Flathub repository
+      ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      changed_when: false
+
+    # Install Sunshine
+    - name: Install Sunshine
+      ansible.builtin.command: flatpak install -y --noninteractive flathub dev.lizardbyte.app.sunshine
+      register: flatpak_install
+      changed_when: "'already installed' not in flatpak_install.stdout"
+
+    # Configure autostart (for GUI users)
+    - name: Ensure autostart directory exists
+      ansible.builtin.file:
+        path: /home/{{ user }}/.config/autostart
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: '0755'
+      when: user is defined
+
+    - name: Create Sunshine autostart entry
+      ansible.builtin.copy:
+        dest: /home/{{ user }}/.config/autostart/sunshine.desktop
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Name=Sunshine
+          Exec=flatpak run dev.lizardbyte.sunshine
+          Terminal=false
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: '0644'
+      when: user is defined
+
+    - name: Add user to input group (for controller support)
+      user:
+        name: "{{ user }}"
+        groups: input
+        append: yes
+
+  tags: gaming

@@ -1,0 +1,33 @@
+[DEFAULT]
+ignoreip = {{ trusted_ips | join(' ') }}
+bantime = 24h
+findtime = 1h
+maxretry = 5
+destemail = {{ admin_email }}
+sender = fail2ban@{{ ansible_hostname }}
+action = %(action_mwl)s
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = %(sshd_log)s
+maxretry = 3
+
+[traefik-auth]
+enabled = true
+port = http,https
+filter = traefik-auth
+logpath = {{ traefik_log_path }}
+maxretry = 5
+findtime = 600
+bantime = 86400
+
+[traefik-botsearch]
+enabled = true
+port = http,https
+filter = traefik-botsearch
+logpath = {{ traefik_log_path }}
+maxretry = 10
+findtime = 86400
+bantime = 604800

@@ -1,0 +1,50 @@
+---
+services:
+  immich-server:
+    container_name: immich_server
+    image: ghcr.io/immich-app/immich-server:{{ immich_version }}
+    volumes:
+      - "{{ immich_host_path }}/immich/:/usr/src/app/upload"
+      - "/etc/localtime:/etc/localtime:ro"
+    ports:
+      - '2283:2283'
+    environment:
+      - DB_HOSTNAME={{ postgres_database_host_name }}  # "postgres" if using container name
+      - DB_USERNAME={{ immich_db_user }}
+      - DB_PASSWORD={{ immich_db_password }}
+      - DB_DATABASE_NAME=immich
+      - DB_PORT=5432
+      - DB_VECTOR_EXTENSION=pgvector
+
+      - REDIS_HOSTNAME=redis  # Container name if in same Docker network
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD={{ redis_password }}
+      - REDIS_DBINDEX=1  # Optional: if you want specific Redis DB
+
+      - UPLOAD_LOCATION=/usr/src/app  # Must match container volume mount
+
+      - NODE_ENV=production
+      - IMMICH_PORT=2283
+      - IMMICH_MACHINE_LEARNING_URL=http://immich_machine_learning:3003
+    restart: unless-stopped
+    networks: [ "immich", "db" ]
+    healthcheck:
+      disable: false
+
+  immich-machine-learning:
+    container_name: immich_machine_learning
+    image: ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}
+    volumes:
+      - "{{ immich_host_path }}/ml/:/cache"
+    restart: unless-stopped
+    networks: ["immich"]
+    healthcheck:
+      disable: false
+
+networks:
+  immich:
+    external: true
+  db:
+    external: true
+
+
