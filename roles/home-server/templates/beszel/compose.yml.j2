@@ -5,7 +5,7 @@ services:
     container_name: ts-beszel-hub
     restart: unless-stopped
     environment:
-      TS_AUTHKEY: "{{ tailscale_beszel_auth_key }}"
+      TS_AUTHKEY: "{{ tailscale_auth_key_vault }}"
       TS_EXTRA_ARGS: "--hostname=beszel --advertise-tags=tag:beszel"
       TS_SERVE_CONFIG: "/config/config.json"
       TS_STATE_DIR: "/var/lib/tailscale"

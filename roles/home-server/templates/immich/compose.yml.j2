@@ -15,6 +15,7 @@ services:
       - DB_DATABASE_NAME=immich
       - DB_PORT=5432
       - DB_VECTOR_EXTENSION=pgvector
+      - DB_BACKUP_COMMAND=pg_dump -U immich -h postgres -d immich --no-privileges --no-owner
 
       - REDIS_HOSTNAME=redis  # Container name if in same Docker network
       - REDIS_PORT=6379
@@ -33,7 +34,7 @@ services:
 
   immich-machine-learning:
     container_name: immich_machine_learning
-    image: ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}
+    image: ghcr.io/immich-app/immich-machine-learning:{{ immich_machine_learning_version }}
     volumes:
       - "{{ immich_host_path }}/ml/:/cache"
     restart: unless-stopped
