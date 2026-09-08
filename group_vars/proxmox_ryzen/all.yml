@@ -1,0 +1,16 @@
+---
+# home-server LXC (vmid 102) on this Proxmox host.
+# This LXC hosts several applications; the steam-headless container is one of
+# them. The container is created only if it does not exist yet - it is NEVER
+# recreated or destroyed by this playbook.
+home_server_lxc_vmid: 102
+home_server_lxc_hostname: "home-server"
+home_server_lxc_cores: 6
+home_server_lxc_memory: 11444
+home_server_lxc_swap: 0
+home_server_lxc_rootfs: "SSD-Pool:40"
+# Bind mounts / storage mounts applied at creation time
+home_server_lxc_mounts:
+  - "/mnt/backups,mp=/mnt/backups"
+  - "HDD-Big:1000,mp=/opt"
+home_server_lxc_net0: "name=eth0,bridge=vmbr0,ip=dhcp,type=veth"

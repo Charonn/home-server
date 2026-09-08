@@ -1,0 +1,116 @@
+---
+services:
+  steam-headless:
+    image: josh5/steam-headless:{{ steam_headless_version }}
+    restart: unless-stopped
+    shm_size: "2g"
+    ipc: host
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 524288
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_NICE
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+
+    # GPU PASSTHROUGH:
+    # The nvidia container runtime is registered on this LXC by the
+    # steam-headless Ansible tasks (nvidia-ctk runtime configure).
+    runtime: nvidia
+
+    # NETWORK:
+    # Host networking is required for Steam Remote Play and Sunshine/Moonlight
+    # (direct UDP streaming, mDNS discovery, controller support).
+    network_mode: host
+    hostname: {{ steam_headless_hostname }}
+    extra_hosts:
+      - "{{ steam_headless_hostname }}:127.0.0.1"
+
+    # ENVIRONMENT:
+    environment:
+      # System
+      - TZ={{ steam_headless_timezone }}
+      - USER_LOCALES={{ steam_headless_locales }}
+      - DISPLAY={{ steam_headless_display }}
+      # User
+      - PUID=1000
+      - PGID=1000
+      - UMASK=000
+      - USER_PASSWORD={{ steam_headless_user_password }}
+      # Mode
+      - MODE=primary
+      # Web UI (noVNC on http://<host>:{{ steam_headless_novnc_port }})
+      - WEB_UI_MODE=vnc
+      - ENABLE_VNC_AUDIO=true
+      - PORT_NOVNC_WEB={{ steam_headless_novnc_port }}
+      - NEKO_NAT1TO1=
+      # Steam
+      - ENABLE_STEAM=true
+      - STEAM_ARGS={{ steam_headless_steam_args }}
+      # Sunshine (Moonlight server)
+      - ENABLE_SUNSHINE=true
+      - SUNSHINE_USER={{ steam_headless_sunshine_user }}
+      - SUNSHINE_PASS={{ steam_headless_sunshine_password }}
+      # Xorg (no monitor attached to the LXC - use dummy video config)
+      - ENABLE_EVDEV_INPUTS=true
+      - FORCE_X11_DUMMY_CONFIG=true
+      # Nvidia specific config (userspace libs are injected by the
+      # nvidia container runtime, driver version on the host: 580.x)
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_VERSION=
+
+    # DEVICES:
+    devices:
+      # Use the host fuse device [REQUIRED].
+      - /dev/fuse
+      # Add the host uinput device [REQUIRED] (Sunshine virtual input).
+      - /dev/uinput
+    # Ensure container access to input event devices 13:*
+    device_cgroup_rules:
+      - 'c 13:* rmw'
+
+    # VOLUMES:
+    volumes:
+      # The location of your home directory.
+      # NOTE: also acts as the NVIDIA driver download cache: on container
+      # recreation the entrypoint reuses ~/Downloads/NVIDIA_<host-version>.run
+      # (only re-downloads when the Proxmox host driver version changes) and
+      # reinstalls the userspace libs into the container (~1 min).
+      - {{ steam_headless_host_path }}/home/:/home/default/:rw
+
+      # The location where all games should be installed.
+      # This path needs to be set as a library path in Steam after logging in.
+      - {{ steam_headless_host_path }}/games/:/mnt/games/:rw
+
+      # The Xorg socket.
+      - {{ steam_headless_host_path }}/sockets/.X11-unix/:/tmp/.X11-unix/:rw
+
+      # Pulse audio socket.
+      - {{ steam_headless_host_path }}/sockets/pulse/:/tmp/pulse/:rw
+
+  ts-steam-headless:
+    # Tailscale sidecar giving the Steam Headless web UI its own MagicDNS
+    # name (https://steam-headless.<tailnet>.ts.net).
+    # NOTE: cannot share the steam-headless network namespace (host network),
+    # so it runs on its own bridge network and proxies to the host port via
+    # host.docker.internal. Moonlight/Sunshine streaming always connects to
+    # the LXC directly (UDP cannot be proxied by tailscale serve).
+    image: tailscale/tailscale:v1.96.5
+    container_name: ts-steam-headless
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: "{{ tailscale_auth_key_vault }}"
+      TS_EXTRA_ARGS: "--hostname=steam-headless"
+      TS_SERVE_CONFIG: "/config/config.json"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_USERSPACE: "true"
+    volumes:
+      - "{{ steam_headless_host_path }}/tailscale/state:/var/lib/tailscale"
+      - "{{ steam_headless_host_path }}/tailscale/config:/config"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -72,3 +72,87 @@
 - name: run newaliases
   command: newaliases
   when: not ansible_check_mode
+
+- name: "home-server LXC provisioning"
+  when: home_server_lxc_vmid is defined
+  tags:
+    - "home-server"
+  block:
+    - name: Check whether the LXC container exists
+      ansible.builtin.command: "pct status {{ home_server_lxc_vmid }}"
+      register: lxc_status
+      failed_when: false
+      changed_when: false
+      check_mode: false  # read-only, safe to run in check mode
+
+    - name: Ensure SSH public key is available for container creation
+      ansible.builtin.copy:
+        dest: /root/.ssh/marcel.pub
+        src: "{{ playbook_dir }}/roles/common/files/marcel.pub"
+        owner: root
+        group: root
+        mode: '0600'
+      when: lxc_status.rc != 0
+
+    - name: Ensure Debian 12 container template is available (only needed for fresh creation)
+      ansible.builtin.shell: |
+        pveam update >/dev/null
+        if ! pveam list local 2>/dev/null | grep -q "debian-12-standard"; then
+          pveam download local "$(pveam available --section system | grep -oE 'debian-12-standard_[^ ]+\.tar\.zst' | sort -V | tail -1)"
+        fi
+      when: lxc_status.rc != 0
+      changed_when: false
+
+    - name: Create LXC container if missing (NEVER recreated when it exists)
+      ansible.builtin.shell: >-
+        pct create {{ home_server_lxc_vmid }}
+        local:vztmpl/$(pveam list local | grep -oE 'debian-12-standard_[^ ]+\.tar\.zst' | sort -V | tail -1)
+        --hostname {{ home_server_lxc_hostname }}
+        --cores {{ home_server_lxc_cores }}
+        --memory {{ home_server_lxc_memory }}
+        --swap {{ home_server_lxc_swap }}
+        --rootfs {{ home_server_lxc_rootfs }}
+        --mp0 {{ home_server_lxc_mounts[0] }}
+        --mp1 {{ home_server_lxc_mounts[1] }}
+        --net0 {{ home_server_lxc_net0 }}
+        --features nesting=1
+        --onboot 1
+        --tags docker
+        --ssh-keys /root/.ssh/marcel.pub
+        --start 1
+      when: lxc_status.rc != 0
+      register: lxc_created
+
+    - name: Bootstrap python3 inside a freshly created container (needed by Ansible)
+      ansible.builtin.command: >-
+        pct exec {{ home_server_lxc_vmid }} --
+        bash -c "apt-get update -qq && apt-get install -y -qq python3"
+      when: lxc_created is changed
+
+    - name: Bootstrap ansible user inside a freshly created container
+      ansible.builtin.shell: >-
+        pct exec {{ home_server_lxc_vmid }} -- bash -c 'set -e;
+        id marcel >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,ssh-users marcel;
+        install -d -m 700 -o marcel -g marcel /home/marcel/.ssh;
+        cp /root/.ssh/authorized_keys /home/marcel/.ssh/authorized_keys;
+        chown marcel:marcel /home/marcel/.ssh/authorized_keys;
+        chmod 600 /home/marcel/.ssh/authorized_keys'
+      when: lxc_created is changed
+      changed_when: false
+
+    - name: Apply GPU device passthrough config to the LXC
+      ansible.builtin.lineinfile:
+        path: "/etc/pve/lxc/{{ home_server_lxc_vmid }}.conf"
+        line: "{{ item }}"
+        state: present
+      loop:
+        # fuse and uinput are required by the steam-headless container
+        - "lxc.mount.entry: /dev/fuse dev/fuse none bind,optional,create=file"
+        - "lxc.mount.entry: /dev/uinput dev/uinput none bind,optional,create=file"
+        # uinput (10:223) and fuse (10:229) device nodes
+        - "lxc.cgroup2.devices.allow: c 10:223 rwm"
+        - "lxc.cgroup2.devices.allow: c 10:229 rwm"
+        # /dev/input event devices for Sunshine virtual input
+        - "lxc.cgroup2.devices.allow: c 13:* rwm"
+      register: lxc_device_config
+      notify: "Restart home-server LXC"

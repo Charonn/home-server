@@ -4,6 +4,8 @@
   become: yes
   roles:
     - role: common
+    - role: geerlingguy.docker
+    - role: docker
     - role: "home-server"
       tags:
         - "home-server"

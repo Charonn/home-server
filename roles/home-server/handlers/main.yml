@@ -6,5 +6,8 @@
     state: present
     recreate: always
     remove_orphans: yes
-  async: 30
-  poll: 5
+  # steam-headless recreations reinstall the NVIDIA userspace libs (~2 min,
+  # from the cached .run) - normal services return in seconds, the timeout
+  # only bounds the wait
+  async: 1800
+  poll: 15

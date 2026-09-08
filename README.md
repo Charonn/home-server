@@ -8,10 +8,50 @@ Uses ansible to setup a home server with docker and these containers:
 - no-ip
 - mariadb
 - redis
+- steam-headless (remote gaming: Steam + Sunshine/Moonlight, on `ryzen_home_server` LXC)
 
 ## Apply to home-server
 ```bash
 ansible-playbook site.yml --private-key=~/.ssh/* --tags home-server --diff --limit proxmox_home_server
+```
+
+## Steam Headless (remote gaming)
+
+Deployed as `josh5/steam-headless` to the `home-server` LXC (id 102) on the
+`proxmox_ryzen` host with NVIDIA GTX 1050 Ti GPU passthrough. Provides:
+
+- **Moonlight/Sunshine** for low-latency game streaming (enabled)
+- noVNC web UI on `http://home-server.shark-scylla.ts.net:8083` and via the
+  Tailscale sidecar at `https://steam-headless.shark-scylla.ts.net`
+- Steam Remote Play (host networking)
+
+Note: the Tailscale sidecar serves the **web UI** only. Moonlight streaming
+requires direct UDP to the LXC, so it connects to
+`home-server.shark-scylla.ts.net` (or the LAN IP), not via the sidecar.
+
+The playbook fully automates the setup:
+1. `proxmox_host` role (runs on `proxmox_ryzen`): ensures the `home-server` LXC
+   (id 102) exists — **only if it is missing** (never recreated) —, applies
+   `/dev/fuse` + `/dev/uinput` device passthrough and cgroup device allows to
+   `/etc/pve/lxc/102.conf` and restarts the container **only when this config
+   changed** (needed once).
+2. `home-server` role on the LXC: registers the NVIDIA container runtime with
+   Docker (`nvidia-ctk runtime configure`), deploys the compose stack.
+
+Secrets (desktop password, Sunshine credentials, paths, image version) are in
+the vault, mapped via `group_vars/ryzen_home_server/all.yml`.
+
+Apply the LXC provisioning (device passthrough config on the Proxmox host):
+```bash
+ansible-playbook site.yml --tags home-server --diff --limit proxmox_ryzen
+```
+Apply the Steam Headless application on the LXC:
+```bash
+ansible-playbook site.yml --tags steam-headless --diff --limit ryzen_home_server
+```
+Dry run (no changes applied):
+```bash
+ansible-playbook site.yml --check --diff --limit proxmox_ryzen,ryzen_home_server
 ```
 
 

@@ -1,0 +1,9 @@
+---
+- name: "Restart home-server LXC"
+  # Only triggered when the LXC device config actually changed.
+  # Required once to activate new lxc.mount.entry / cgroup2 device allows.
+  # NOTE: handlers ignore tags entirely - they run when notified.
+  ansible.builtin.shell: |
+    if pct status {{ home_server_lxc_vmid }} | grep -q 'status: running'; then
+      pct reboot {{ home_server_lxc_vmid }}
+    fi

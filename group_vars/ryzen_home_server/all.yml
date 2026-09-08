@@ -30,3 +30,22 @@ traefik_email: "{{ traefik_email_vault }}"
 tailscale_auth_key: "{{ tailscale_auth_key_vault }}"
 tailscale_host_path: "{{ tailscale_host_path_vault }}"
 pihole_password: "{{ pihhole_password_vault }}"
+
+# Steam Headless (remote gaming container)
+steam_headless_host_path: "{{ steam_headless_host_path_vault }}"
+steam_headless_version: "{{ steam_headless_version_vault }}"
+steam_headless_user_password: "{{ steam_headless_user_password_vault }}"
+steam_headless_sunshine_user: "{{ steam_headless_sunshine_user_vault }}"
+steam_headless_sunshine_password: "{{ steam_headless_sunshine_password_vault }}"
+steam_headless_hostname: "SteamHeadless"
+steam_headless_timezone: "Europe/Berlin"
+steam_headless_locales: "de_DE.UTF-8 UTF-8"
+steam_headless_display: ":55"
+steam_headless_novnc_port: "8083"
+# "-silent" starts Steam minimized to the tray; set to "" to show the login window
+steam_headless_steam_args: ""
+# Sunshine Web UI: extra origins accepted by the CSRF protection
+# (host LAN IP is appended automatically). Used for csrf_allowed_origins.
+steam_headless_sunshine_csrf_origins:
+  - "https://home-server.shark-scylla.ts.net"
+  - "https://steam-headless.shark-scylla.ts.net"

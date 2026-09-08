@@ -1,0 +1,141 @@
+---
+- name: Create directories for Steam Headless volumes
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: '0755'
+  loop:
+    - "{{ steam_headless_host_path }}/home"
+    - "{{ steam_headless_host_path }}/sockets/.X11-unix"
+    - "{{ steam_headless_host_path }}/sockets/pulse"
+
+- name: Create games directory (world-writable, as recommended upstream)
+  ansible.builtin.file:
+    path: "{{ steam_headless_host_path }}/games"
+    state: directory
+    mode: '0777'
+
+- name: Check whether the NVIDIA runtime is already registered with Docker
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: docker_daemon_json
+  failed_when: false
+
+- name: Register NVIDIA container runtime with Docker (once)
+  ansible.builtin.shell: |
+    nvidia-ctk runtime configure --runtime=docker
+    systemctl restart docker
+  when: docker_daemon_json.failed or
+        'nvidia' not in (docker_daemon_json.content | b64decode)
+  register: nvidia_runtime_setup
+
+- name: Remove obsolete .env file from the previous manual attempt
+  ansible.builtin.file:
+    path: "{{ steam_headless_host_path }}/.env"
+    state: absent
+
+- name: Remove obsolete socket directories from the previous manual attempt
+  ansible.builtin.command: >
+    rmdir --ignore-fail-on-non-empty
+    {{ steam_headless_host_path }}/.X11-unix
+    {{ steam_headless_host_path }}/pulse
+  register: rmdir_result
+  changed_when: rmdir_result.rc == 0
+  # "No such file or directory" means they are already gone - that is success.
+  # Real errors (e.g. directory not empty, permission denied) still fail.
+  failed_when: rmdir_result.rc != 0 and
+               'No such file or directory' not in rmdir_result.stderr
+
+- name: Create Tailscale sidecar state and config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ steam_headless_host_path }}/tailscale/state"
+    - "{{ steam_headless_host_path }}/tailscale/config"
+
+- name: Create static Tailscale serve configuration (noVNC web UI via MagicDNS)
+  ansible.builtin.copy:
+    dest: "{{ steam_headless_host_path }}/tailscale/config/config.json"
+    content: |
+      {
+        "TCP": {
+          "443": {
+            "HTTPS": true
+          }
+        },
+        "Web": {
+          "${TS_CERT_DOMAIN}:443": {
+            "Handlers": {
+              "/": {
+                "Proxy": "http://host.docker.internal:{{ steam_headless_novnc_port }}"
+              }
+            }
+          }
+        },
+        "AllowFunnel": {
+          "${TS_CERT_DOMAIN}:443": false
+        }
+      }
+    mode: '0644'
+
+- name: Deploy compose template
+  ansible.builtin.template:
+    src: steam-headless/compose.yml.j2
+    dest: "{{ steam_headless_host_path }}/compose.yml"
+    mode: '0600'  # contains credentials
+  notify: "Restart Docker Compose stack"
+  vars:
+    docker_compose_project_src: "{{ steam_headless_host_path }}"
+  register: template_result
+
+- name: Ensure Docker Compose stack is running
+  community.docker.docker_compose_v2:
+    project_src: "{{ steam_headless_host_path }}"
+    state: present
+    recreate: "{{ 'always' if force_restart | default(false) else 'never' }}"
+  register: compose_output
+  # First run must pull a multi-GB image (Steam + Xfce desktop) - allow up to 1h.
+  # Once the image is cached this returns in seconds.
+  async: 3600
+  poll: 15
+
+- name: Set compose project src fact
+  ansible.builtin.set_fact:
+    docker_compose_project_src: "{{ steam_headless_host_path }}"
+  when: template_result.changed
+
+- name: Check Sunshine config exists (created on first container start)
+  ansible.builtin.stat:
+    path: "{{ steam_headless_host_path }}/home/.config/sunshine/sunshine.conf"
+  register: sunshine_conf
+
+- name: Allow Sunshine Web UI access from tailnet and LAN (CSRF origins)
+  ansible.builtin.lineinfile:
+    path: "{{ steam_headless_host_path }}/home/.config/sunshine/sunshine.conf"
+    regexp: '^csrf_allowed_origins\s*=.*$'
+    line: "csrf_allowed_origins = {{ (steam_headless_sunshine_csrf_origins + ['https://' ~ sunshine_lan_ip]) | join(', ') }}"
+    state: present
+  vars:
+    sunshine_lan_ip: "{{ ansible_default_ipv4.address | default('localhost') }}"
+  when: sunshine_conf.stat.exists
+  register: sunshine_csrf
+
+- name: Allow PIN pairing from non-localhost clients (e.g. via Tailscale)
+  ansible.builtin.lineinfile:
+    path: "{{ steam_headless_host_path }}/home/.config/sunshine/sunshine.conf"
+    regexp: '^#?\s*origin_web_ui_allowed\s*=.*$'
+    line: "origin_web_ui_allowed = wan"
+    state: present
+  when: sunshine_conf.stat.exists
+  register: sunshine_pin
+
+- name: Restart steam-headless container to apply the Sunshine config
+  # container restart (not recreate) - the installed NVIDIA userspace
+  # driver survives, only Sunshine reloads its config
+  ansible.builtin.command: >
+    docker compose -f {{ steam_headless_host_path }}/compose.yml restart steam-headless
+  when: sunshine_csrf.changed or sunshine_pin.changed
