@@ -16,7 +16,16 @@ idle_power_spin_apm: 127
 idle_power_spin_data_sec: 1200
 idle_power_spin_backup_sec: 600
 idle_power_spin_boot_sec: 0
-idle_power_pool_roles: {}
+# Pool-Rollen (verifiziert 2026-10-10 via zpool list + VM-Disk-Mapping):
+#   HDD-2TB  = Backup-Pool (Mirror 2× WD20EARS, 1,8 T, DEGRADED — Platte ersetzen!)
+#              -> wird täglich 01:05 durch backup.sh (home-server-VM, sdb-Passthrough) geweckt
+#   HDD-Big  = Daten-Pool (Mirror 14T+12T) -> enthält die home-server-VM-Disk (subvol-102, /opt-Docker-Daten)
+#              -> wird im Backup-Fenster 01:05+ ebenfalls beschrieben
+#   SSD-Pool = 2× Intenso 954 GB SSDs -> Spin-Down wirkt nicht, via 'boot'-Rolle ausgeschlossen
+idle_power_pool_roles:
+  HDD-2TB: backup
+  HDD-Big: data
+  SSD-Pool: boot
 idle_power_spin_overrides: {}
 
 # smartd

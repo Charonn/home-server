@@ -44,10 +44,15 @@ Wichtige Defaults (Rolle `roles/idle_power/defaults/main.yml`):
 - `idle_power_pool_roles` Pool-Namen aus `zpool list` setzen (backup/boot/data)
 - `idle_power_txg_force` nur anpassen, wenn das Crash-Fenster akzeptabel ist
 
-### Backup-Interaktion (vzdump)
-Das Backup weckt die Platten im Backup-Pool kurzzeitig pro Durchlauf —
-das ist intendiert (Spin-Down = Idle-Modus zwischen Backups, kein
-Dauer-Offline). Das `idle-spin.service` re-appliziert nach jedem Boot;
-keine Interaktion mit laufenden Backups. smartd weckt dank
-`-n standby,q` **nicht** beim 30-min-Poll — Tests laufen, sobald die
-Platte eh wach ist (z. B. Backup-Fenster).
+### Backup-Interaktion (verifiziert 2026-10-10)
+Das tägliche Backup (`/root/backup/backup.sh` auf der home-server-VM,
+01:05, Borg + rclone + MariaDB-Dumps) beschreibt über die VM-Disk-
+Passthroughs die Pools **HDD-2TB** (Borg-Repo, `sdb`) und **HDD-Big**
+(VM-Rootvol, `/opt`). Ablauf: 01:05 Wecken -> Backup (letzte Dauer
+12:32 min) -> +10/20 min parkt der Pool wieder; Rest der Nacht geparkt.
+`pool_status.sh` (20:00, Telegram-Report) liest nur RAM-Metadaten und
+weckt nicht. Konfliktfrei. smartd weckt dank `-n standby,q` nicht beim
+30-min-Poll; Tests laufen, sobald die Platte eh wach ist.
+
+Pool-Rollen sind als Defaults gesetzt: HDD-2TB=backup (10 min),
+HDD-Big=data (20 min), SSD-Pool=boot (nie).
