@@ -43,4 +43,11 @@ ansible-playbook site.yml --tags idle_power --limit proxmox_ryzen
 Wichtige Defaults (Rolle `roles/idle_power/defaults/main.yml`):
 - `idle_power_pool_roles` Pool-Namen aus `zpool list` setzen (backup/boot/data)
 - `idle_power_txg_force` nur anpassen, wenn das Crash-Fenster akzeptabel ist
-- Nachtpause bleibt `disabled` (risikoreich, WoL-Absender klären)
+
+### Backup-Interaktion (vzdump)
+Das Backup weckt die Platten im Backup-Pool kurzzeitig pro Durchlauf —
+das ist intendiert (Spin-Down = Idle-Modus zwischen Backups, kein
+Dauer-Offline). Das `idle-spin.service` re-appliziert nach jedem Boot;
+keine Interaktion mit laufenden Backups. smartd weckt dank
+`-n standby,q` **nicht** beim 30-min-Poll — Tests laufen, sobald die
+Platte eh wach ist (z. B. Backup-Fenster).

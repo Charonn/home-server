@@ -27,8 +27,3 @@ idle_power_node_exporter_apply: false
 idle_power_node_exporter_args: >-
   --collector.diskstats.ignored-devices=^(ram|loop|fd|nbd|zd|dm-)
 
-# Nachtpause (disabled, risikoreich)
-idle_power_nightpause_enable: false
-idle_power_nightpause_off: '23:00'
-idle_power_nightpause_on: '06:00'
-idle_power_wol_from: 'Fritzbox MAC-Filter oder ryzen-ip-kvm (100.80.198.108)'
