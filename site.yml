@@ -45,3 +45,9 @@
   roles:
     - role: proxmox_host
 
+- hosts: proxmox_ryzen
+  become: yes
+  roles:
+    - role: idle_power
+      tags:
+        - "idle_power"

@@ -1,0 +1,19 @@
+[Unit]
+# Managed by Ansible (idle_power.yml) — DO NOT EDIT
+Description=Apply HDD spin-down policy after boot (idle-power)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# One ExecStart per HDD (rotation: hdparm -S codes, 1 unit = 5 s):
+{%- for it in idle_power_spin_items | default([]) %}
+{%- if it.spin_code | int == 0 %}
+ExecStart=/usr/sbin/hdparm -q -B {{ idle_power_spin_apm }} -S 0 {{ it.dev }}       # {{ it.pool }} never spin down
+{%- else %}
+ExecStart=/usr/sbin/hdparm -q -B {{ idle_power_spin_apm }} -S {{ it.spin_code }} {{ it.dev }}       # {{ it.pool }} ({{ it.role }})
+{%- endif %}
+{%- endfor %}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+#!/bin/bash
+# Managed by Ansible (idle_power.yml) — DO NOT EDIT
+# Night pause: shutdown of the tower at {{ idle_power_nightpause_off }} if
+# no VMs/CTs are running. Returning requires WoL from the router/suite
+# ({{ idle_power_wol_from }}) before {{ idle_power_nightpause_on }}.
+set -u
+V=$(qm list 2>/dev/null | awk 'NR>1 && $3=="running"' | wc -l)
+C=$(pct list 2>/dev/null | awk 'NR>1 && tolower($2)=="running"' | wc -l)
+if [ "$((V + C))" -gt 0 ]; then
+    logger -t idle-power "nightpause: skipped, VMs/CTs running"
+    exit 0
+fi
+logger -t idle-power "nightpause: powering off, wake up via WoL ({{ idle_power_wol_from }})"
+systemctl poweroff

@@ -1,0 +1,16 @@
+---
+  - name: systemd daemon-reload
+    ansible.builtin.systemd_service:
+      daemon_reload: true
+  - name: restart smartd
+    ansible.builtin.systemd_service:
+      name: smartmontools
+      state: restarted
+  - name: restart node_exporter
+    ansible.builtin.systemd_service:
+      name: node_exporter
+      state: restarted
+  - name: apply tmpfiles
+    ansible.builtin.command: systemd-tmpfiles --create
+    changed_when: true
+

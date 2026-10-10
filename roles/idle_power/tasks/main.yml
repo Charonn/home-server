@@ -1,0 +1,374 @@
+---
+# Idle-Power-Reduktion (from Karte t_15bbb646 ansible_draft, converted to role)
+# Playbook-Konvertierung: hosts: pve -> role auf proxmox_ryzen (siehe site.yml); tags idle_power
+
+  # ===================================================================
+  # 0) Tools + Discovery
+  # ===================================================================
+  - name: Installiere hdparm + smartmontools falls fehlend
+    ansible.builtin.apt:
+      name: [hdparm, smartmontools]
+      state: present
+
+  - name: Discovery — zpool Pools + vdev-Members (read-only)
+    ansible.builtin.shell: |
+      set -u
+      while read -r pool; do
+        echo "POOL|${pool}"
+        zpool status -v "${pool}" 2>/dev/null | awk -v p="${pool}" '
+          /^[\t ]*(mirror-|raidz[0-9]+-|draid[0-9]+-)/ {
+            for (i=2; i<=NF; i++)
+              if ($i ~ /^(sd[a-z]+[0-9]*|nvme[0-9]+n[0-9]+(p[0-9]+)?$|(ata|wwn|scsi)-)/ )
+                print "MEMBER|" p "|" $i "|" cls
+            cls=""
+            next
+          }
+          /^[\t ]*(logs|cache|spares|special|dedup)[\t ]*$/ { cls=$1; next }
+          /^[\t ]*$/ { cls=""; next }
+          $1 ~ /^(sd[a-z]+[0-9]*|nvme[0-9]+n[0-9]+(p[0-9]+)?$|(ata|wwn|scsi)-)/ && NF >= 2 {
+            k=(cls=="" ? "data" : cls)
+            print "MEMBER|" p "|" $1 "|" k
+          }
+        '
+      done < <(zpool list -H -o name)
+    args:
+      executable: /bin/bash
+    register: idle_power_discovery_raw
+    changed_when: false
+
+  - name: Parse Discovery
+    ansible.builtin.set_fact:
+      idle_power_pools: >-
+        {{ idle_power_discovery_raw.stdout_lines | select('match','^POOL\|')
+           | map('regex_replace','^POOL\|','') | list }}
+      idle_power_members: >-
+        {{ idle_power_discovery_raw.stdout_lines | select('match','^MEMBER\|')
+           | map('regex_replace','^MEMBER\|','') | list }}
+
+  - name: Resolve Devices (-> /dev/sdX, by-id, rot, size)
+    ansible.builtin.shell: |
+      set -u
+      for m in {{ idle_power_members | map('quote') | join(' ') }}; do
+        IFS='|' read -r pool raw cls <<<"${m}"
+        resolved="$(readlink -f "/dev/${raw}" 2>/dev/null || echo "/dev/${raw}")"
+        bn="$(basename "${resolved}")"
+        case "${bn}" in
+          sd[a-z][0-9])       resolved="/dev/${bn%[0-9]}" ;;
+          sd[a-z][0-9][0-9])  resolved="/dev/${bn%[0-9][0-9]}" ;;
+          nvme*n*p[0-9]*)     resolved="/dev/${bn%p[0-9]*}" ;;
+          *-part[0-9]*)       resolved="${resolved%-part[0-9]}" ;;
+        esac
+        bn="$(basename "${resolved}")"
+        rot="$(cat "/sys/class/block/${bn}/queue/rotational" 2>/dev/null || echo NA)"
+        size="$(cat "/sys/class/block/${bn}/size" 2>/dev/null || echo 0)"
+        [ "${size}" = "0" ] && continue   # z.B. USB-Gadget ohne Medium (sdg)
+        byid=""
+        for l in /dev/disk/by-id/ata-* /dev/disk/by-id/nvme-* /dev/disk/by-id/scsi-* /dev/disk/by-id/wwn-*; do
+          [ -e "${l}" ] || continue
+          t="$(readlink -f "${l}" 2>/dev/null || true)"
+          [ "${t}" = "${resolved}" ] || continue
+          byid="${l}"; break
+        done
+        echo "DEV|${pool}|${resolved}|${byid:-${resolved}}|${rot}|${cls}"
+      done
+    args:
+      executable: /bin/bash
+    register: idle_power_devs_raw
+    changed_when: false
+
+  # DEV-Zeile: 0=pool 1=resolved 2=byid 3=rot 4=cls
+  - name: Build Device-Item-Listen (dicts)
+    ansible.builtin.set_fact:
+      idle_power_hdds: >-
+        {%- set out = [] -%}
+        {%- for line in idle_power_devs_raw.stdout_lines | select('match','^DEV\|')
+               | map('regex_replace','^DEV\|','') | map('split','|') | list -%}
+          {%- if line[3] == '1' -%}
+            {%- set _ = out.append({'pool': line[0], 'resolved': line[1], 'byid': line[2], 'cls': line[4]}) -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ out }}
+      idle_power_ssd_members: >-
+        {%- set out = [] -%}
+        {%- for line in idle_power_devs_raw.stdout_lines | select('match','^DEV\|')
+               | map('regex_replace','^DEV\|','') | map('split','|') | list -%}
+          {%- if line[3] == '0' and line[0] != 'rpool' -%}
+            {%- set _ = out.append({'pool': line[0], 'resolved': line[1], 'byid': line[2], 'cls': line[4]}) -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ out }}
+
+  - name: Build spin-down Items (Rolle -> hdparm -S Code)
+    ansible.builtin.set_fact:
+      idle_power_spin_items: >-
+        {%- set out = [] -%}
+        {%- for h in idle_power_hdds -%}
+          {%- set role = idle_power_pool_roles.get(h.pool, 'data') -%}
+          {%- set sec  = (idle_power_spin_backup_sec if role == 'backup'
+                          else (idle_power_spin_boot_sec if role == 'boot'
+                                else idle_power_spin_data_sec)) | int -%}
+          {%- set o    = idle_power_spin_overrides.get(h.byid, idle_power_spin_overrides.get(h.resolved, {})) -%}
+          {%- set sec  = o.get('seconds', sec) | int -%}
+          {%- if sec <= 0 -%}
+            {%- set code = 0 -%}
+          {%- elif sec <= 1200 -%}
+            {%- set code = ((sec + 4) // 5) | int -%}
+          {%- else -%}
+            {%- set code = (240 + ((sec - 1200 + 1799) // 1800)) | int -%}
+          {%- endif -%}
+          {%- if code > 251 -%}{%- set code = 251 -%}{%- endif -%}
+          {%- set _ = out.append({'pool': h.pool, 'role': role, 'dev': h.byid,
+                                  'resolved': h.resolved, 'seconds': sec, 'spin_code': code}) -%}
+        {%- endfor -%}
+        {{ out }}
+
+  - name: Fail wenn keine rotierenden Pool-Members entdeckt
+    ansible.builtin.fail:
+      msg: >-
+        Keine HDDs in den Pools entdeckt ({{ idle_power_members | length }}
+        Members). Bitte zpool status manuell gegenchecken, bevor
+        Spin-Down-Konfiguration geschrieben wird.
+    when: idle_power_spin_enable | bool and (idle_power_hdds | length == 0)
+
+  - name: Bestands-Snapshot (Summary)
+    ansible.builtin.debug:
+      msg: >-
+        Pools: {{ idle_power_pools | join(', ') }} |
+        HDDs: {{ idle_power_spin_items | map(attribute='dev') | join(', ') }} |
+        SSDs im Pool (nicht beruehrt): {{ idle_power_ssd_members | map(attribute='resolved') | join(', ') }} |
+        Spin-Plan: {{ idle_power_spin_items | map(attribute='spin_code') | join(', ') }}
+
+  # ===================================================================
+  # 1) CPU-Governor (amd-pstate active): performance -> schedutil
+  # ===================================================================
+  - name: Lese Ist-Governor + Driver + ASPM (nur Report)
+    ansible.builtin.shell: |
+      printf 'governor='; cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+      printf 'driver=';   cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo NA
+      printf 'aspm=';     cat /sys/module/pcie_aspm/parameters/policy 2>/dev/null || echo NA
+      printf 'epp=';      cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo NA
+      printf 'cpuidle=';  ls /sys/devices/system/cpu/cpu0/cpuidle/ 2>/dev/null | tr '\n' ',' ; echo
+    args:
+      executable: /bin/bash
+    register: idle_power_gov_before
+    changed_when: false
+
+  - name: Pruefe tuned (kann Governor ueberschreiben, PVE 8.3+)
+    ansible.builtin.command: tuned-adm active
+    register: idle_power_tuned
+    changed_when: false
+    failed_when: false
+
+  - name: Deploy Governor-Unit
+    ansible.builtin.template:
+      src: cpu-governor.service.j2
+      dest: /etc/systemd/system/pve-cpu-governor.service
+      mode: '0644'
+    when: idle_power_governor_apply | bool
+    notify: systemd daemon-reload
+
+  - name: Aktiviere + starte Governor-Unit
+    ansible.builtin.systemd_service:
+      name: pve-cpu-governor.service
+      enabled: true
+      state: started
+    when: idle_power_governor_apply | bool
+
+  # ===================================================================
+  # 2) zfs_txg_timeout (MODUL-Parameter, global): 5 s -> 3600 s.
+  #    Gate: Wenn storage.cfg (content images/rootdir) einen der Pools
+  #    referenziert, ist das VM-Risiko real (Crash -> TXG-Daten bis
+  #    txg_timeout alt). idle_power_txg_force: true = bewusst erzwingen.
+  # ===================================================================
+  - name: Lese aktuellen zfs_txg_timeout
+    ansible.builtin.slurp:
+      src: /sys/module/zfs/parameters/zfs_txg_timeout
+    register: idle_power_txg_before
+    when: idle_power_txg_enable | bool
+
+  - name: Lese /etc/pve/storage.cfg
+    ansible.builtin.slurp:
+      src: /etc/pve/storage.cfg
+    register: idle_power_storage_cfg_raw
+    when: idle_power_txg_enable | bool
+    failed_when: false
+
+  - name: Bestimme zfspool-Refs in storage.cfg
+    ansible.builtin.set_fact:
+      idle_power_storage_pools: >-
+        {{ (idle_power_storage_cfg_raw.content | default('') | b64decode | default('', true))
+           | regex_findall('zfspool:\s*\S+\s*\n\s*pool\s+([^\s]+)') | list }}
+    when: idle_power_txg_enable | bool
+
+  - name: Pool-Overlap-Check (SLOG-/VM-Risiko)
+    ansible.builtin.set_fact:
+      idle_power_txg_pool_overlap: >-
+        {{ idle_power_storage_pools | default([]) | intersect(idle_power_pools) | list }}
+    when: idle_power_txg_enable | bool
+
+  - name: TXG-Timeout jetzt setzen (sysfs, sofort wirksam)
+    ansible.builtin.copy:
+      content: "{{ idle_power_txg_timeout }}\n"
+      dest: /sys/module/zfs/parameters/zfs_txg_timeout
+    when: >-
+      idle_power_txg_enable | bool
+      and (idle_power_txg_timeout | int) > 0
+      and (idle_power_txg_pool_overlap | length == 0 or idle_power_txg_force | bool)
+
+  - name: TXG-Timeout boot-persistent (tmpfiles.d)
+    ansible.builtin.template:
+      src: zfs-txg-idle.conf.j2
+      dest: /etc/tmpfiles.d/zfs-txg-idle.conf
+      mode: '0644'
+    when: >-
+      idle_power_txg_enable | bool
+      and (idle_power_txg_timeout | int) > 0
+      and (idle_power_txg_pool_overlap | length == 0 or idle_power_txg_force | bool)
+    notify: apply tmpfiles
+
+  - name: TXG-Warnung wenn Gate schliesst (fuer Marcel Review)
+    ansible.builtin.debug:
+      msg: >-
+        zfs_txg_timeout NICHT geaendert: storage.cfg referenziert
+        {{ idle_power_txg_pool_overlap | join(', ') }} mit images/rootdir.
+        Wenn akzeptabel (Crash -> Daten bis {{ idle_power_txg_timeout }} s alt),
+        setze idle_power_txg_force: true.
+    when: >-
+      idle_power_txg_enable | bool
+      and idle_power_txg_pool_overlap | length > 0
+      and not (idle_power_txg_force | bool)
+
+  # ===================================================================
+  # 3) HDD Spin-Down (hdparm -B/-S), NUR rotierende Pool-Members.
+  #    - SSDs/NVMe unberuehrt (kein Effekt, kein Risiko)
+  #    - Boot-Pool (rpool) default nie (idle_power_pool_roles)
+  #    - by-id-Devices stabil ueber Reboots
+  # ===================================================================
+  - name: Wende Spin-Down sofort an (hdparm -B -S, optional -y)
+    ansible.builtin.command: >-
+      /usr/sbin/hdparm -q -B {{ idle_power_spin_apm }}
+      -S {{ it.spin_code }}
+      {{ ' -y' if (idle_power_spin_apply_now | bool and it.spin_code | int > 0) else '' }}
+      {{ it.dev }}
+    loop: "{{ idle_power_spin_items }}"
+    loop_control:
+      loop_var: it
+      label: "{{ it.dev }} ({{ it.role }}, -S {{ it.spin_code }})"
+    when: idle_power_spin_enable | bool
+    changed_when: true
+
+  - name: Persistiere Spin-Down-Unit (bei jedem Boot)
+    ansible.builtin.template:
+      src: idle-spin.service.j2
+      dest: /etc/systemd/system/idle-spin.service
+      mode: '0644'
+    when: idle_power_spin_enable | bool
+    notify: systemd daemon-reload
+
+  - name: Aktiviere Spin-Down-Unit
+    ansible.builtin.systemd_service:
+      name: idle-spin.service
+      enabled: true
+      state: started
+    when: idle_power_spin_enable | bool
+
+  - name: Lese Spin-Zustaende (hdparm -C, fuer Report)
+    ansible.builtin.shell: |
+      {% for it in idle_power_spin_items %}
+      printf '%s: ' "{{ it.resolved }}"
+      hdparm -C {{ it.resolved }} | sed -n 's/.*drive state is:[[:space:]]*//p'
+      {% endfor %}
+    args:
+      executable: /bin/bash
+    register: idle_power_spin_states
+    changed_when: false
+    when: idle_power_spin_enable | bool
+
+  # ===================================================================
+  # 4) smartd: HDDs by-id + -n standby,q (kein Wake beim 30-min-Poll),
+  #    Short-Test So 04:00 / Long-Test Sa 03:00 (waehrend der Pools dann
+  #    sowieso wach sind wenn benutzt; sonst naechster Poll).
+  #    Check-Intervall bleibt 1800 s — die Karte haette '7 Tage' als
+  #    smartd-Intervall gesetzt; das verschiebt aber auch die Tests
+  #    (60-min-Grenze laut smartd(8)) — -n standby,q ist die saubere Loesung.
+  # ===================================================================
+  - name: Backup bestehender smartd.conf (einmalig)
+    ansible.builtin.copy:
+      src: /etc/smartd.conf
+      dest: /etc/smartd.conf.bak-idle_power
+      remote_src: true
+      force: false
+    when: idle_power_smartd_apply | bool
+
+  - name: Schreibe smartd.conf (Standby-sicher)
+    ansible.builtin.template:
+      src: smartd.conf.j2
+      dest: /etc/smartd.conf
+      mode: '0644'
+    when: idle_power_smartd_apply | bool
+    notify: restart smartd
+
+  # ===================================================================
+  # 5) node_exporter-ARGS (OPTIONAL, default AUS) — siehe vars oben.
+  # ===================================================================
+  - name: node_exporter ARGS setzen (nur wenn explizit aktiviert)
+    ansible.builtin.lineinfile:
+      path: /etc/default/node_exporter
+      regexp: '^ARGS='
+      line: 'ARGS="{{ idle_power_node_exporter_args | trim }}"'
+      create: false
+    when: idle_power_node_exporter_apply | bool
+    failed_when: false
+    notify: restart node_exporter
+
+  # ===================================================================
+  # 6) OPTIONAL: Nachtpause 23:00 (-06:00, poweroff + WoL) — DISABLED.
+  # ===================================================================
+  - name: Installiere Nightpause-Script + Units
+    ansible.builtin.template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+      mode: "{{ item.mode }}"
+    loop:
+      - { src: idle-power-nightpause.sh.j2,       dest: /usr/local/sbin/idle-power-nightpause,       mode: '0755' }
+      - { src: nightpause-poweroff.service.j2,    dest: /etc/systemd/system/nightpause-poweroff.service, mode: '0644' }
+      - { src: nightpause-poweroff.timer.j2,      dest: /etc/systemd/system/nightpause-poweroff.timer,   mode: '0644' }
+    when: idle_power_nightpause_enable | bool
+    notify: systemd daemon-reload
+
+  - name: Aktiviere Nightpause-Timer
+    ansible.builtin.systemd_service:
+      name: nightpause-poweroff.timer
+      enabled: true
+      state: started
+    when: idle_power_nightpause_enable | bool
+
+  # ===================================================================
+  # 7) Zusammenfassung
+  # ===================================================================
+  - name: Idle-Power-Zusammenfassung
+    ansible.builtin.debug:
+      msg: |
+        == Idle-Power-Zusammenfassung ==
+        Governor (vorher):      {{ idle_power_gov_before.stdout | trim }}
+        tuned (aktiv?):         {{ idle_power_tuned.stdout | default('n/a') | trim }}
+        TXG (vorher):           {{ (idle_power_txg_before.content | b64decode | trim) if (idle_power_txg_enable | bool) else 'n/a' }}
+        TXG-Overlap storage.cfg:{{ (idle_power_txg_pool_overlap | join(',')) if (idle_power_txg_enable | bool) else 'n/a' }}
+        Spin-Zustaende (hdparm -C): {{ idle_power_spin_states.stdout | default('k.A.') | trim }}
+        Nachtpause:             {{ 'ENABLED' if idle_power_nightpause_enable | bool else 'disabled (nur Report)' }}
+
+  - name: Rollback-Referenz (Kurzfassung)
+    ansible.builtin.debug:
+      msg: |
+        Governor    : rm /etc/systemd/system/pve-cpu-governor.service
+                      && systemctl daemon-reload
+                      && for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$g"; done
+        TXG         : rm /etc/tmpfiles.d/zfs-txg-idle.conf
+                      && echo 5 > /sys/module/zfs/parameters/zfs_txg_timeout
+        Spin-Down   : rm /etc/systemd/system/idle-spin.service
+                      && systemctl daemon-reload
+                      && hdparm -q -B 255 -S 0 <HDD-devs>
+        smartd      : cp /etc/smartd.conf.bak-idle_power /etc/smartd.conf
+                      && systemctl restart smartmontools
+        node_exp    : ARGS-Zeile in /etc/default/node_exporter zuruecksetzen
+        Nachtpause  : systemctl disable --now nightpause-poweroff.timer
