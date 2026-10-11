@@ -50,7 +50,10 @@
       set -u
       for m in {{ idle_power_members | map('quote') | join(' ') }}; do
         IFS='|' read -r pool raw cls <<<"${m}"
-        resolved="$(readlink -f "/dev/${raw}" 2>/dev/null || echo "/dev/${raw}")"
+        case "${raw}" in
+          ata-*|wwn-*|scsi-*|nvme-*) resolved="$(readlink -f "/dev/disk/by-id/${raw}" 2>/dev/null || echo "/dev/disk/by-id/${raw}")" ;;
+          *)                         resolved="$(readlink -f "/dev/${raw}" 2>/dev/null || echo "/dev/${raw}")" ;;
+        esac
         bn="$(basename "${resolved}")"
         case "${bn}" in
           sd[a-z][0-9])       resolved="/dev/${bn%[0-9]}" ;;
