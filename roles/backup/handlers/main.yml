@@ -1,0 +1,6 @@
+---
+- name: backup script updated
+  ansible.builtin.debug:
+    msg: >-
+      backup.sh ersetzt. Nächster Cron-Lauf (01:05) benutzt das neue Script.
+      Bei Problemen: {{ backup_script_path }}.bak-* wiederherstellen.

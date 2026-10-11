@@ -1,0 +1,49 @@
+---
+# Backup-Rolle (home-server CT 102): backup.sh -> Ansible-template, Secrets via Vault.
+# Karte: t_63c81ce9. Verhaltensbasis = Original /root/backup/backup.sh (Review 2026-10-10).
+
+backup_script_path: /root/backup/backup.sh
+backup_script_owner: root
+backup_script_group: root
+backup_script_mode: "0700"
+backup_log_dir: /root/backup/logs
+backup_keep_original: true          # bestehendes Script vor Ersetzen nach .bak-<ts> sichern
+
+# Pfadparameter (keine Secrets — aber Vault-fähig, um host-pfad-Konventionen konsistent zu halten)
+backup_mariadb_container: "mariadb"
+backup_mariadb_user: "root"
+backup_mariadb_password: "{{ backup_mariadb_password_vault }}"
+backup_mariadb_backup_dir: /opt/mariadb_backup
+backup_mariadb_backup_dir2: /mnt/backups/mariadb   # Spiegel für Borg (DATA_SOURCE — Original-Verhalten)
+backup_mariadb_dump_retention_days: 356   # Original: -mtime +356
+
+# Borg-Datenquellen (identisch zum Original, ohne 'mariadb_backup'-Kopie — die geht nur ins Ziel)
+backup_borg_data_sources:
+  - /opt/nextcloud_data
+  - /opt/paperless
+  - /mnt/backups/mariadb
+  - /opt/immich
+backup_borg_repo: /mnt/backups/homeserver
+backup_borg_name: homeserver-backup
+backup_borg_passphrase: "{{ backup_borg_passphrase_vault }}"
+backup_borg_keep_daily: 7
+backup_borg_keep_weekly: 4
+backup_borg_keep_monthly: 12
+backup_borg_keep_yearly: 2
+
+# rclone/cloud (Wasabi S3): remotes-Konvention wie im Original
+backup_rclone_remote: "homeserver-backup:homeserverbackup/"
+backup_rclone_access_key: "{{ backup_rclone_access_key_vault }}"
+backup_rclone_secret_key: "{{ backup_rclone_secret_key_vault }}"
+
+# Notification: Mail (bestehend); Telegram-Alert = follow-up (send-alert.sh-Rezept existiert)
+backup_mail_to: marcel.hufnagel@gmx.net
+
+# borg check (Integritäts-Gate VOR jedem create/prune/rclone):
+backup_borg_check_full_weekday: "0"    # 0=Sonntag: Full-Check (komplette Segment-Prüfung)
+backup_borg_check_max_duration: 300    # quick-check max Dauer in Sekunden (danach Abbruch, kein Backup)
+
+# Telegram-Notify (Erfolg ODER Fail — direkte DM):
+backup_telegram_enable: true
+backup_telegram_chat_id: "1175476128"        # Marcel-DM (kein secret)
+backup_telegram_bot_token: "{{ backup_telegram_bot_token_vault }}"  # aus Vault (kein Klartext!)

@@ -7,6 +7,9 @@
     - role: "home-server"
       tags:
         - "home-server"
+    - role: "backup"
+      tags:
+        - "backup"
 
 - hosts: proxmox_ryzen
   become: yes
