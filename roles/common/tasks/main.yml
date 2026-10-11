@@ -61,9 +61,10 @@
     name: ssh
   when: ssh_config.changed
 
-- name: apt ugrade
+- name: apt upgrade
   apt:
     upgrade: yes
+    update_cache: true
 
 - name: Install common software
   apt:
