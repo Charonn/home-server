@@ -43,8 +43,13 @@ jobs:
 
       - name: Prepare ephemeral vault password file (alle ansible-steps brauchen es)
         run: |
-          printf '#!/usr/bin/env bash\nprintf \"%s\" \"$ANSIBLE_VAULT_PASS\"\n' > .vault_pass
+          cat > .vault_pass <<'VPHEADER'
+          #!/usr/bin/env bash
+          VPHEADER
+          echo "printf '%s' '$ANSIBLE_VAULT_PASS'" >> .vault_pass
           chmod 700 .vault_pass
+          bash -n .vault_pass
+          test -n "$(bash .vault_pass)" && echo "vault-pass script ok (Inhalt nicht gezeigt)"
         env:
           ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
 
