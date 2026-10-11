@@ -1,0 +1,25 @@
+---
+  # ===================================================================
+  # 2) Prometheus scrape targets erweitern (home-server-CT Rolle, internet-monitoring)
+  #    Die Datei liegt in /opt/internet-monitoring/prometheus-config/prometheus.yml
+  #    und wird von der home-server-Rolle aus files/internet-monitoring gemanagt.
+  #    Hier: job nodeexp auf die zwei Targets erweitern (Template-Replace).
+  # ===================================================================
+  - name: Prometheus scrape config — nodeexp targets erweitern
+    ansible.builtin.template:
+      src: prometheus.yml.j2
+      dest: /opt/internet-monitoring/prometheus-config/prometheus.yml
+      mode: "0644"
+    notify: restart prometheus container
+    when: monitoring_prometheus_node_targets | length > 0
+
+  # ===================================================================
+  # 3) Grafana dashboard 1860 (Node Exporter Full) provisionieren
+  # ===================================================================
+  - name: Grafana node dashboard provisioning (1860)
+    ansible.builtin.copy:
+      src: dashboards/node-exporter-full-1860.json
+      dest: /opt/internet-monitoring/grafana-config/provisioning/dashboards/
+      mode: "0644"
+    notify: restart grafana container
+    when: monitoring_grafana_dashboard_1860 | bool

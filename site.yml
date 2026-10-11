@@ -10,6 +10,9 @@
     - role: "backup"
       tags:
         - "backup"
+    - role: "monitoring_config"
+      tags:
+        - "monitoring"
 
 - hosts: proxmox_ryzen
   become: yes
