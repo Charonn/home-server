@@ -23,7 +23,9 @@
       mode: "{{ backup_script_mode }}"
     no_log: false           # Klartext-Values landen NICHT im template-output; vault maskiert sie
 
-  - name: backup.sh atomar ersetzen (mv)
+  # check-mode: das .new-File existiert am Host NICHT (template-task schreibt nur in
+  # Real-Runs) — copy mit remote_src würde an fehlender Source scheitern. SKIP im check:
+  - name: backup.sh atomar ersetzen (mv) — skip im check-mode (Source kommt aus dem real-run)
     ansible.builtin.copy:
       src: "{{ backup_script_path }}.new"
       dest: "{{ backup_script_path }}"
@@ -31,7 +33,14 @@
       group: "{{ backup_script_group }}"
       mode: "{{ backup_script_mode }}"
       remote_src: true
+    when: not ansible_check_mode
     notify: backup script updated
+
+  - name: backup.sh.new aufgeräumt — skip im check-mode (gibt es dort nicht)
+    ansible.builtin.file:
+      path: "{{ backup_script_path }}.new"
+      state: absent
+    when: not ansible_check_mode
 
   - name: backup.sh.new aufgeräumt
     ansible.builtin.file:
