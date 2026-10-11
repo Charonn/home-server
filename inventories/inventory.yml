@@ -1,16 +1,6 @@
-proxmox:
-  hosts:
-    "192.168.0.11"
 proxmox_ryzen:
   hosts:
     "ryzen.shark-scylla.ts.net"
-proxmox_home_server:
-  hosts:
-    "192.168.0.4"
-ubuntu_marcel:
-  hosts:
-    "192.168.0.200"
 ryzen_home_server:
   hosts:
     "home-server.shark-scylla.ts.net"
-
