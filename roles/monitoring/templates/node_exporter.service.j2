@@ -1,0 +1,23 @@
+[Unit]
+Description=Prometheus node_exporter ({{ ansible_hostname }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ monitoring_node_exporter_service_user }}
+ExecStart={{ monitoring_node_exporter_install_dir }}/node_exporter \
+    --web.listen-address={{ monitoring_node_exporter_web_listen }} \
+    {{ monitoring_node_exporter_extra_flags | join(' ') }}
+Restart=on-failure
+RestartSec=5
+
+# node_exporter braucht keine root-Rechte;
+# hardware monitoring via /sys, /proc ist world-readable
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/proc /sys
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

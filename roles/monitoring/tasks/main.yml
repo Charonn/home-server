@@ -1,0 +1,78 @@
+---
+# node_exporter auf dem Proxmox-Host (systemd, eigenes binary) + Prometheus-Targets erweitern.
+# Karte: t_6128e8c0. Marcel-Review-Stand: Host-Exporter direkt (nicht im LXC), kein Pushgateway.
+
+  # ===================================================================
+  # 1) node_exporter binary + user + systemd-unit auf dem HOST
+  # ===================================================================
+  - name: Create node_exporter system user
+    ansible.builtin.user:
+      name: "{{ monitoring_node_exporter_service_user }}"
+      system: true
+      shell: /usr/sbin/nologin
+      home: /nonexistent
+      state: present
+
+  - name: Download + install node_exporter {{ monitoring_node_exporter_version }}
+    ansible.builtin.unarchive:
+      src: "{{ monitoring_node_exporter_download_url }}"
+      dest: /tmp
+      remote_src: true
+      creates: "/tmp/node_exporter-{{ monitoring_node_exporter_version }}.linux-{{ monitoring_node_exporter_arch }}/node_exporter"
+    register: monitoring_ne_dl
+    when: monitoring_node_exporter_enable | bool
+
+  - name: Install node_exporter binary
+    ansible.builtin.copy:
+      src: "/tmp/node_exporter-{{ monitoring_node_exporter_version }}.linux-{{ monitoring_node_exporter_arch }}/node_exporter"
+      dest: "{{ monitoring_node_exporter_install_dir }}/node_exporter"
+      mode: "0755"
+      owner: root
+      group: root
+      remote_src: true
+    notify: restart node_exporter
+    when: monitoring_node_exporter_enable | bool
+
+  - name: systemd unit node_exporter
+    ansible.builtin.template:
+      src: node_exporter.service.j2
+      dest: /etc/systemd/system/node_exporter.service
+      mode: "0644"
+    notify:
+      - systemd daemon-reload
+      - restart node_exporter
+    when: monitoring_node_exporter_enable | bool
+
+  - name: Enable + start node_exporter (skip in check mode — Unit existiert dort noch nicht)
+    ansible.builtin.systemd_service:
+      name: node_exporter
+      enabled: true
+      state: started
+    when: monitoring_node_exporter_enable | bool and not ansible_check_mode
+
+  # ===================================================================
+  # 2) Prometheus scrape targets erweitern (home-server-CT Rolle, internet-monitoring)
+  #    Die Datei liegt in /opt/internet-monitoring/prometheus-config/prometheus.yml
+  #    und wird von der home-server-Rolle aus files/internet-monitoring gemanagt.
+  #    Hier: job nodeexp auf die zwei Targets erweitern (Template-Replace).
+  # ===================================================================
+  - name: Prometheus scrape config — nodeexp targets erweitern
+    ansible.builtin.template:
+      src: prometheus.yml.j2
+      dest: /opt/internet-monitoring/prometheus-config/prometheus.yml
+      mode: "0644"
+    delegate_to: home-server.shark-scylla.ts.net
+    notify: restart prometheus container
+    when: monitoring_prometheus_node_targets | length > 0
+
+  # ===================================================================
+  # 3) Grafana dashboard 1860 (Node Exporter Full) provisionieren
+  # ===================================================================
+  - name: Grafana node dashboard provisioning (1860)
+    ansible.builtin.copy:
+      src: dashboards/node-exporter-full-1860.json
+      dest: /opt/internet-monitoring/grafana-config/provisioning/dashboards/
+      mode: "0644"
+    delegate_to: home-server.shark-scylla.ts.net
+    notify: restart grafana container
+    when: monitoring_grafana_dashboard_1860 | bool

@@ -22,3 +22,10 @@
     - role: idle_power
       tags:
         - "idle_power"
+
+- hosts: proxmox_ryzen
+  become: yes
+  roles:
+    - role: monitoring
+      tags:
+        - "monitoring"

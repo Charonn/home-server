@@ -1,0 +1,61 @@
+# Managed by Ansible (role: monitoring) — based on internet-monitoring/prometheus/prometheus.yml
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+      monitor: 'Alertmanager'
+
+rule_files:
+    - 'alert.rules'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    scrape_interval: 30s
+    static_configs:
+         - targets: ['prometheus:9090']
+
+  - job_name: 'speedtest'
+    metrics_path: /metrics
+    scrape_interval: 15m
+    scrape_timeout: 80s
+    static_configs:
+      - targets: ['speedtest:9798']
+
+  - job_name: 'ping'
+    metrics_path: /probe
+    scrape_interval: 60s
+    params:
+      module: [http_2xx]
+    file_sd_configs:
+      - files:
+        - pinghosts.yaml
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '(.*);(.*);(.*);(.*)'
+        target_label: instance
+        replacement: $1
+      - source_labels: [__address__]
+        regex: '(.*);(.*);(.*);(.*)'
+        target_label: humanname
+        replacement: $2
+      - source_labels: [__address__]
+        regex: '(.*);(.*);(.*);(.*)'
+        target_label: routing
+        replacement: $3
+      - source_labels: [__address__]
+        regex: '(.*);(.*);(.*)'
+        target_label: switching
+        replacement: $4
+      - source_labels: [instance]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: ping:9115
+
+  - job_name: 'nodeexp'
+    static_configs:
+    - targets:
+      # Tailscale-IPs statt MagicDNS-Hostnamen: docker-embedded-DNS im Prom-Container
+      # kann *.ts.net NICHT auflösen (live getestet), TS-IPs routen direkt.
+      - '100.76.167.54:9100'    # ryzen (Proxmox-Host, node_exporter systemd)
+      - '100.116.49.79:9100'    # home-server CT (bestehender nodeexporter-Container)
+      - 'nodeexporter:9100'     # docker-Netz-Alias (identisches TS-Target, redundancy-safe)
