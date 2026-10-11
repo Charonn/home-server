@@ -66,9 +66,13 @@ jobs:
       # GESAMTPLAYBOOK im Check-Mode: alle hosts / alle Rollen / alle tags.
       # --diff zeigt die Files, die ein Real-Lauf schreiben würde.
       - name: CHECK MODE + diff (vollstndige Rollen, Tailnet-Hosts)
+        # 1 Retry für transiente Docker-socket-Timeouts (busy CT: docker-py inspect 60 s);
+        # Retry wiederholt nur den check-Lauf — keine Writes, gleiche Sicherheit wie PR-#5-Muster.
         run: |
           ansible-playbook site.yml --check --diff \
-            --limit 'proxmox_ryzen,ryzen_home_server' -u marcel -b
+            --limit 'proxmox_ryzen,ryzen_home_server' -u marcel -b           || (echo 'RETRY nach transientem Docker-Timeout...' && sleep 20 && \
+          ansible-playbook site.yml --check --diff \
+            --limit 'proxmox_ryzen,ryzen_home_server' -u marcel -b)
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
