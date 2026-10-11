@@ -56,15 +56,14 @@ jobs:
       - name: Inventory reachable? (ping, check-mode safe)
         run: |
           ansible all -m ansible.builtin.ping \
-            --limit 'proxmox_ryzen:ryzen_home_server' \
-            -u marcel --become --become-method sudo -K 2>/dev/null || \
-          ansible all -m ansible.builtin.ping \
-            --limit 'proxmox_ryzen:ryzen_home_server' -u marcel
+            --limit 'proxmox_ryzen,ryzen_home_server' -u marcel -b
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
 
       - name: Syntax check (site.yml)
         run: ansible-playbook site.yml --syntax-check
+        env:
+          ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
 
       - name: CHECK MODE + Diff (idle_power + monitoring + backup + common)
         run: |
@@ -73,6 +72,7 @@ jobs:
             --tags idle_power,monitoring,common
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
         shell: bash
 
       # vault_pass.sh wird nur im ephemeral runner gelesen, nie committed:
