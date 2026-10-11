@@ -212,9 +212,10 @@
     when: idle_power_txg_enable | bool
 
   - name: TXG-Timeout jetzt setzen (sysfs, sofort wirksam)
-    ansible.builtin.copy:
-      content: "{{ idle_power_txg_timeout }}\n"
-      dest: /sys/module/zfs/parameters/zfs_txg_timeout
+    # sysfs erlaubt KEINE temporären Dateien (copy-Modul bricht mit EPERM).
+    # Direkter Schreibzugriff via echo als root (become: yes aus site.yml).
+    ansible.builtin.command: >-
+      sysctl -n -w zfs.zfs_txg_timeout={{ idle_power_txg_timeout }}
     when: >-
       idle_power_txg_enable | bool
       and (idle_power_txg_timeout | int) > 0
