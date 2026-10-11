@@ -1,0 +1,15 @@
+# Managed by Ansible (idle_power.yml) — DO NOT EDIT
+# Backup of configuration before: /etc/smartd.conf.bak-idle_power
+#
+# Rotating trays: -n standby,q  => smartd does NOT wake the disk when
+#   paused (30-min check interval remains), tests run as soon as the disk
+#   is active again. Short test daily 04:00, long test Sat 03:00.
+{% for h in idle_power_hdds %}
+{{ h.byid }} -a -n standby,q -s (S/../.././04|L/../../6/03)
+{% endfor %}
+# SSDs in pool: regular monitoring without standby handling
+{% for s in idle_power_ssd_members | default([]) %}
+{{ s.byid }} -a
+{% endfor %}
+# NVMe (boot disk)
+/dev/nvme0 -a

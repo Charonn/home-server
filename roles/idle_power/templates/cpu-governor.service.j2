@@ -1,0 +1,12 @@
+[Unit]
+# Managed by Ansible (idle_power.yml) — DO NOT EDIT
+Description=Set CPU governor to {{ idle_power_governor }} (idle-power)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo {{ idle_power_governor }} > "$g"; done'
+
+[Install]
+WantedBy=multi-user.target
