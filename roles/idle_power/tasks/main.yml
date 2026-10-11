@@ -11,6 +11,7 @@
       state: present
 
   - name: Discovery — zpool Pools + vdev-Members (read-only)
+    check_mode: false
     ansible.builtin.shell: |
       set -u
       while read -r pool; do
@@ -46,6 +47,7 @@
            | map('regex_replace','^MEMBER\|','') | list }}
 
   - name: Resolve Devices (-> /dev/sdX, by-id, rot, size)
+    check_mode: false
     ansible.builtin.shell: |
       set -u
       for m in {{ idle_power_members | map('quote') | join(' ') }}; do
