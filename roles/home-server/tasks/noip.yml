@@ -26,6 +26,9 @@
     name: "noip"
     image: "coppit/no-ip"
     state: "started"
+    # read-timeout für den Modul-Inspect (docker-py default 60 s): das CT hat 38 Container,
+    # der inspect-Pfad braucht gelegentlich > 60 s — ohne Fix bricht ein check-mode-Lauf hier ab.
+    timeout: 180
     restart_policy: "unless-stopped"
     volumes:
       - "/etc/localtime:/etc/localtime"
