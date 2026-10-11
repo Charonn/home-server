@@ -212,13 +212,17 @@
     when: idle_power_txg_enable | bool
 
   - name: TXG-Timeout jetzt setzen (sysfs, sofort wirksam)
-    ansible.builtin.copy:
-      content: "{{ idle_power_txg_timeout }}\n"
-      dest: /sys/module/zfs/parameters/zfs_txg_timeout
+    # sysfs erlaubt keine (temporary) NEUEN Dateien -> ansible copy bricht mit EPERM;
+    # sysctl kennt ZFS-Parameter nicht (/proc/sys/zfs existiert nicht — live verifiziert).
+    # Root-schreibt die bestehende sysfs-Datei direkt per redirect (become: yes aus site.yml).
+    ansible.builtin.shell: |
+      echo {{ idle_power_txg_timeout }} > /sys/module/zfs/parameters/zfs_txg_timeout
+      cat /sys/module/zfs/parameters/zfs_txg_timeout
     when: >-
       idle_power_txg_enable | bool
       and (idle_power_txg_timeout | int) > 0
       and (idle_power_txg_pool_overlap | length == 0 or idle_power_txg_force | bool)
+    changed_when: true
 
   - name: TXG-Timeout boot-persistent (tmpfiles.d)
     ansible.builtin.template:
