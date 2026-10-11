@@ -35,7 +35,24 @@ trap cleanup EXIT
 
 fail() {
     echo "$(date +%Y%m%d_%H%M%S) - BACKUP FAILED in step: $1" >&2
+    # Telegram-FAIL-Notice (kein Markdown, plain text)
+    if [[ "{{ backup_telegram_enable }}" == "True" ]]; then
+        curl -s -X POST "https://api.telegram.org/bot{{ backup_telegram_bot_token }}/sendMessage" \
+            -d chat_id="{{ backup_telegram_chat_id }}" \
+            --data-urlencode "text=❌ Backup FAILED — step: $1 ($(hostname -s), $(date '+%d.%m. %H:%M'))
+Details: cron-Mail / $(dirname "${BASH_SOURCE[0]:-$0}")/$(basename "${BASH_SOURCE[0]:-$0}")" \
+            > /dev/null 2>&1 || true
+    fi
     exit 1
+}
+
+# Telegram-Erfolgs-Notice (kompakt, kein Markdown)
+tg_ok() {
+    if [[ "{{ backup_telegram_enable }}" == "True" ]]; then
+        curl -s -X POST "https://api.telegram.org/bot{{ backup_telegram_bot_token }}/sendMessage" \
+            -d chat_id="{{ backup_telegram_chat_id }}" \
+            --data-urlencode "text=$1" >/dev/null 2>&1 || true
+    fi
 }
 
 log() { echo "$(date +%Y%m%d_%H%M%S) - $*"; }
@@ -132,4 +149,11 @@ RUNTIME=$((END - START))
 MINUTES=$((RUNTIME / 60))
 SECONDS=$((RUNTIME % 60))
 log "Backup completed successfully in $MINUTES:$SECONDS"
+if [[ "{{ backup_telegram_enable }}" == "True" ]]; then
+  ARCHIVES=$(borg list --short "$BORG_LOCAL_REPO" | tail -1)
+  tg_ok "✅ Backup OK ($(hostname -s)) in $MINUTES:$SECONDS
+Borg: $(date +%Y-%m-%d)-${BORG_BACKUP_NAME}
+Neuestes Archiv: ${ARCHIVES}
+Cloud: rclone sync abgeschlossen"
+fi
 echo

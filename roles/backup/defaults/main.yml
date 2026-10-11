@@ -42,3 +42,8 @@ backup_mail_to: marcel.hufnagel@gmx.net
 # borg check (Integritäts-Gate VOR jedem create/prune/rclone):
 backup_borg_check_full_weekday: "0"    # 0=Sonntag: Full-Check (komplette Segment-Prüfung)
 backup_borg_check_max_duration: 300    # quick-check max Dauer in Sekunden (danach Abbruch, kein Backup)
+
+# Telegram-Notify (Erfolg ODER Fail — direkte DM):
+backup_telegram_enable: true
+backup_telegram_chat_id: "1175476128"        # Marcel-DM (kein secret)
+backup_telegram_bot_token: "{{ backup_telegram_bot_token_vault }}"  # aus Vault (kein Klartext!)
