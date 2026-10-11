@@ -177,7 +177,7 @@
       name: pve-cpu-governor.service
       enabled: true
       state: started
-    when: idle_power_governor_apply | bool
+    when: idle_power_governor_apply | bool and not ansible_check_mode
 
   # ===================================================================
   # 2) zfs_txg_timeout (MODUL-Parameter, global): 5 s -> 1800 s.
@@ -275,7 +275,7 @@
       name: idle-spin.service
       enabled: true
       state: started
-    when: idle_power_spin_enable | bool
+    when: idle_power_spin_enable | bool and not ansible_check_mode
 
   - name: Lese Spin-Zustaende (hdparm -C, fuer Report)
     ansible.builtin.shell: |
