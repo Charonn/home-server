@@ -149,10 +149,127 @@
         # fuse and uinput are required by the steam-headless container
         - "lxc.mount.entry: /dev/fuse dev/fuse none bind,optional,create=file"
         - "lxc.mount.entry: /dev/uinput dev/uinput none bind,optional,create=file"
+        # NVIDIA DRM nodes, via by-path symlinks so they survive GPU
+        # renumbering across reboots (pci 01:00.0 = GTX 1050 Ti here).
+        # Required for Sunshine kmsgrab capture and OpenGL/Vulkan.
+        - "lxc.mount.entry: /dev/dri/by-path/pci-0000:01:00.0-card dev/dri/card0 none bind,optional,create=file"
+        - "lxc.mount.entry: /dev/dri/by-path/pci-0000:01:00.0-render dev/dri/renderD129 none bind,optional,create=file"
         # uinput (10:223) and fuse (10:229) device nodes
         - "lxc.cgroup2.devices.allow: c 10:223 rwm"
         - "lxc.cgroup2.devices.allow: c 10:229 rwm"
+        # NVIDIA device majors on this kernel: uvm=506, caps=509
+        # (nvidia=195 and modeset=234 are already allowed in the base config)
+        - "lxc.cgroup2.devices.allow: c 506:* rwm"
+        - "lxc.cgroup2.devices.allow: c 509:* rwm"
         # /dev/input event devices for Sunshine virtual input
         - "lxc.cgroup2.devices.allow: c 13:* rwm"
+        # Physical input devices (may be empty on a headless host; harmless)
+        - "lxc.mount.entry: /dev/input dev/input none bind,optional,create=dir"
       register: lxc_device_config
       notify: "Restart home-server LXC"
+
+    - name: Enable NVIDIA DRM KMS (required for Sunshine kmsgrab capture)
+      # modeset is currently N on this host -> /dev/dri gives no usable KMS
+      # device; takes effect on next Proxmox host reboot
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/nvidia-drm-modeset.conf
+        content: "options nvidia_drm modeset=1\n"
+        owner: root
+        group: root
+        mode: '0644'
+      register: nvidia_modeset_config
+
+    - name: Rebuild initramfs after modprobe change
+      ansible.builtin.command: update-initramfs -u -k all
+      when: nvidia_modeset_config.changed
+      changed_when: true
+
+    - name: Load NVIDIA modules at host boot (before LXC autostart)
+      # Without this, /dev/nvidia* are created lazily on first GPU access -
+      # AFTER the LXC boots - and its optional bind mounts leave empty files.
+      ansible.builtin.lineinfile:
+        path: /etc/modules
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "nvidia"
+        - "nvidia_drm"
+      register: nvidia_modules_boot
+
+    - name: Deploy nvidia-modeset device node service (creates /dev/nvidia-modeset at boot)
+      # NvFBC (Sunshine capture) opens /dev/nvidia-modeset (c 195:254). The node
+      # is created lazily by nvidia-modprobe; without it NvFBC fails and
+      # Sunshine falls back to KMS. One-shot service ensures it exists early.
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/nvidia-modeset-device.service
+        content: |
+          [Unit]
+          Description=Create NVIDIA modeset device node
+          After=systemd-modules-load.service
+          ConditionPathExists=!/dev/nvidia-modeset
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/nvidia-modprobe --modeset
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: '0644'
+      register: nvidia_modeset_unit
+
+    - name: Enable nvidia-modeset device node service
+      ansible.builtin.systemd:
+        name: nvidia-modeset-device.service
+        daemon_reload: true
+        enabled: true
+        state: "{{ 'restarted' if nvidia_modeset_unit.changed else 'started' }}"
+      when: not ansible_check_mode
+
+    - name: Ensure NVIDIA/DRM device nodes inside the LXC are real char devices
+      # Repairs the empty regular files left by the optional bind mounts when
+      # the LXC booted before the host nodes existed. No LXC restart needed.
+      ansible.builtin.shell: |
+        set -e
+        pct status {{ home_server_lxc_vmid }} | grep -q 'status: running' || { echo "LXC not running - skipped"; exit 0; }
+        for pair in "nvidia0" "nvidiactl" "nvidia-uvm" "nvidia-uvm-tools" "nvidia-modeset" "dri/card0" "dri/renderD129"; do
+          host_path="/dev/${pair}"
+          if [ ! -c "${host_path}" ]; then
+            echo "skip ${host_path} (not a char device on host yet)"
+            continue
+          fi
+          maj=$(stat -c '%t' "${host_path}")
+          min=$(stat -c '%T' "${host_path}")
+          dec_maj=$((16#${maj}))
+          dec_min=$((16#${min}))
+          pct exec {{ home_server_lxc_vmid }} -- bash -c "if [ ! -c /dev/${pair} ]; then rm -f /dev/${pair}; mknod /dev/${pair} c ${dec_maj} ${dec_min}; chmod 666 /dev/${pair}; fi"
+        done
+      args:
+        executable: /bin/bash   # 16#... base-prefix arithmetic needs bash
+      changed_when: false
+
+    - name: Check effective nvidia-drm modeset on the running kernel
+      ansible.builtin.command: cat /sys/module/nvidia_drm/parameters/modeset
+      register: nvidia_modeset_state
+      changed_when: false
+      check_mode: false  # read-only, safe in check mode
+
+    - name: Reboot the Proxmox host to activate nvidia-drm modeset (opt-in)
+      # DANGER: restarts the whole Proxmox host - all guests bounce.
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when:
+        - proxmox_host_reboot_on_config_change | default(false)
+        - nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1'
+
+    - name: Warn that the Proxmox host still needs a reboot for nvidia-drm modeset
+      ansible.builtin.debug:
+        msg: >-
+          nvidia-drm modeset is not active yet ({{ nvidia_modeset_state.stdout | trim }}).
+          Reboot the Proxmox host to apply (all guests will restart), or rerun with
+          -e proxmox_host_reboot_on_config_change=true to reboot automatically.
+      when:
+        - not (proxmox_host_reboot_on_config_change | default(false))
+        - nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1'

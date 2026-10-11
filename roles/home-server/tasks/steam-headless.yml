@@ -1,35 +1,30 @@
 ---
 - name: Create directories for Steam Headless volumes
+  # NOTE: owner/mode are only set on initial creation and intentionally NOT
+  # enforced afterwards - the container's own services manage these
+  # (X requires 1777 root:root on the X11 socket dir, pulseaudio and
+  # tailscale tighten their own directories).
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ item.path }}"
     state: directory
-    owner: "1000"
-    group: "1000"
-    mode: '0755'
+    owner: "{{ item.owner | default(omit) }}"
+    group: "{{ item.group | default(omit) }}"
+    mode: "{{ item.mode | default(omit) }}"
   loop:
-    - "{{ steam_headless_host_path }}/home"
-    - "{{ steam_headless_host_path }}/sockets/.X11-unix"
-    - "{{ steam_headless_host_path }}/sockets/pulse"
+    - path: "{{ steam_headless_host_path }}/home"
+      owner: "1000"
+      group: "1000"
+      mode: "0755"
+    - path: "{{ steam_headless_host_path }}/sockets/.X11-unix"
+    - path: "{{ steam_headless_host_path }}/sockets/pulse"
+    # holds the patched start-dumb-udev.sh bind-mounted into the container
+    - path: "{{ steam_headless_host_path }}/overrides"
 
 - name: Create games directory (world-writable, as recommended upstream)
   ansible.builtin.file:
     path: "{{ steam_headless_host_path }}/games"
     state: directory
     mode: '0777'
-
-- name: Check whether the NVIDIA runtime is already registered with Docker
-  ansible.builtin.slurp:
-    src: /etc/docker/daemon.json
-  register: docker_daemon_json
-  failed_when: false
-
-- name: Register NVIDIA container runtime with Docker (once)
-  ansible.builtin.shell: |
-    nvidia-ctk runtime configure --runtime=docker
-    systemctl restart docker
-  when: docker_daemon_json.failed or
-        'nvidia' not in (docker_daemon_json.content | b64decode)
-  register: nvidia_runtime_setup
 
 - name: Remove obsolete .env file from the previous manual attempt
   ansible.builtin.file:
@@ -52,7 +47,6 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    mode: '0755'
   loop:
     - "{{ steam_headless_host_path }}/tailscale/state"
     - "{{ steam_headless_host_path }}/tailscale/config"
@@ -81,6 +75,12 @@
         }
       }
     mode: '0644'
+
+- name: Deploy patched start-dumb-udev.sh (prevents Xorg restart cascade - upstream issue #231)
+  ansible.builtin.copy:
+    src: steam-headless/start-dumb-udev.sh
+    dest: "{{ steam_headless_host_path }}/overrides/start-dumb-udev.sh"
+    mode: '0755'
 
 - name: Deploy compose template
   ansible.builtin.template:
@@ -120,7 +120,7 @@
     line: "csrf_allowed_origins = {{ (steam_headless_sunshine_csrf_origins + ['https://' ~ sunshine_lan_ip]) | join(', ') }}"
     state: present
   vars:
-    sunshine_lan_ip: "{{ ansible_default_ipv4.address | default('localhost') }}"
+    sunshine_lan_ip: "{{ ansible_facts['default_ipv4']['address'] | default('localhost') }}"
   when: sunshine_conf.stat.exists
   register: sunshine_csrf
 

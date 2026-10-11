@@ -1,5 +1,38 @@
 ---
 
+<<<<<<< HEAD
+=======
+# - hosts: proxmox
+#   become: yes
+#   roles:
+#     - role: geerlingguy.docker
+#     - role: home-server
+
+# - hosts: zotac
+#   become: yes
+#   roles:
+#     - role: common
+#     - role: geerlingguy.docker
+#     - role: docker
+#     - role: "home-server"
+#       tags: "home-server"
+
+- hosts: proxmox_home_server
+  become: yes
+  roles:
+    - role: common
+    - role: geerlingguy.docker
+    - role: docker
+    - role: "home-server"
+      tags:
+        - "home-server"
+
+- hosts: proxmox_ryzen
+  become: yes
+  roles:
+    - role: proxmox_host
+
+>>>>>>> 8181eef (Update)
 - hosts: ryzen_home_server
   become: yes
   roles:
@@ -13,10 +46,19 @@
       tags:
         - "backup"
 
+<<<<<<< HEAD
 - hosts: proxmox_ryzen
   become: yes
   roles:
     - role: proxmox_host
+=======
+# - hosts: ubuntu_marcel
+#   become: yes
+#   roles:
+#     - role: common
+#     - role: ubuntu
+#     - role: sunshine
+>>>>>>> 8181eef (Update)
 
 - hosts: proxmox_ryzen
   become: yes
