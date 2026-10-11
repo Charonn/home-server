@@ -50,8 +50,11 @@ jobs:
           ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
 
       - name: Inventory reachable? (ping, check-mode safe)
+        # CI-Runner erreicht NUR die Tailnet-Hosts; LAN-only (192.168.0.x) bleiben
+        # im lokalen Lauf von Marcel. Limit = beide TS-Groups (alle Rollen laufen!).
         run: |
-          ansible all -m ansible.builtin.ping -u marcel -b
+          ansible all -m ansible.builtin.ping \
+            --limit 'proxmox_ryzen,ryzen_home_server' -u marcel -b
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
 
@@ -62,9 +65,10 @@ jobs:
 
       # GESAMTPLAYBOOK im Check-Mode: alle hosts / alle Rollen / alle tags.
       # --diff zeigt die Files, die ein Real-Lauf schreiben würde.
-      - name: CHECK MODE + diff (gesamtes Playbook, alle Hosts)
+      - name: CHECK MODE + diff (vollstndige Rollen, Tailnet-Hosts)
         run: |
-          ansible-playbook site.yml --check --diff -u marcel -b
+          ansible-playbook site.yml --check --diff \
+            --limit 'proxmox_ryzen,ryzen_home_server' -u marcel -b
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
