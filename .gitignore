@@ -2,3 +2,4 @@
 .vagrant/
 .vagrant.d/
 .ansible-retry/
+vault_pass.sh
