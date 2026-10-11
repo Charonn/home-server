@@ -54,4 +54,8 @@ scrape_configs:
   - job_name: 'nodeexp'
     static_configs:
     - targets:
-      {{ monitoring_prometheus_node_targets | to_nice_yaml | indent(6) }}
+      # Tailscale-IPs statt MagicDNS-Hostnamen: docker-embedded-DNS im Prom-Container
+      # kann *.ts.net NICHT auflösen (live getestet), TS-IPs routen direkt.
+      - '100.76.167.54:9100'    # ryzen (Proxmox-Host, node_exporter systemd)
+      - '100.116.49.79:9100'    # home-server CT (bestehender nodeexporter-Container)
+      - 'nodeexporter:9100'     # docker-Netz-Alias (identisches TS-Target, redundancy-safe)
