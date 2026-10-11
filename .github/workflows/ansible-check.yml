@@ -1,0 +1,81 @@
+name: ansible-check
+
+# Ansible Syntax + CHECK MODE + Diff auf PRs gegen main.
+# Der Check-Run verbindet sich NUR mit den im Inventory referenzierten Hosts,
+# mit einem kurzlebigen Tailscale-Node (tag:ci), der nach dem Job wieder weg ist.
+#
+# Secrets (einmalig von Marcel setzen — Settings → Secrets and variables → Actions):
+#   TAILSCALE_OAUTH_CLIENT_ID  — Tailscale admin console → OAuth clients (scopes: acl read? nein: "All" oder devices core)
+#   TAILSCALE_OAUTH_SECRET     — dazugehöriges Secret
+#   ANSIBLE_VAULT_PASS         — Vault-Passphrase (nur für vault-Secret-Decrypt im Runtime-Teil)
+#
+# Sicherheit (Marcel-Review-Stand):
+# - CHECK MODE überall: keine Writes auf Hosts. Ausgenommen: die 3 read-only-Discovery-Tasks
+#   mit check_mode: false (zpool status, /sys/class/block lesen) — rein lesend.
+# - systemd-Unit-Tasks mit `state: started` skippen im Check-Mode (PR #5-Muster), keine Reihenfolge-Effekte
+# - Der CI-Node läuft als tag:ci (NICHT tag:aperture) — eigene ACL-Zeile nötig (siehe PR-Text)
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  ansible-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible
+        run: pipx install ansible-core
+
+      - name: Install galaxy requirements
+        run: ansible-galaxy install -r requirements.yml
+
+      - name: Connect via Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          hostname: gh-ci-ansible
+          tags: tag:ci
+
+      - name: Prepare ephemeral vault password file (alle ansible-steps brauchen es)
+        run: |
+          cat > .vault_pass <<'VPHEADER'
+          #!/usr/bin/env bash
+          VPHEADER
+          echo "printf '%s' '$ANSIBLE_VAULT_PASS'" >> .vault_pass
+          chmod 700 .vault_pass
+          bash -n .vault_pass
+          test -n "$(bash .vault_pass)" && echo "vault-pass script ok (Inhalt nicht gezeigt)"
+        env:
+          ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
+
+      - name: Inventory reachable? (ping, check-mode safe)
+        run: |
+          ansible all -m ansible.builtin.ping \
+            --limit 'proxmox_ryzen,ryzen_home_server' -u marcel -b
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+
+      - name: Syntax check (site.yml)
+        run: ansible-playbook site.yml --syntax-check
+        env:
+          ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
+
+      - name: CHECK MODE + Diff (idle_power + monitoring + backup + common)
+        run: |
+          ansible-playbook site.yml --check --diff \
+            --limit 'proxmox_ryzen,ryzen_home_server' \
+            --tags idle_power,monitoring,common
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+          ANSIBLE_VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASS }}
+        shell: bash
+
+      # vault_pass.sh wird nur im ephemeral runner gelesen, nie committed:
+      - name: Cleanup vault password file
+        if: always()
+        run: rm -f .vault_pass
