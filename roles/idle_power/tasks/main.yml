@@ -175,10 +175,10 @@
     when: idle_power_governor_apply | bool
 
   # ===================================================================
-  # 2) zfs_txg_timeout (MODUL-Parameter, global): 5 s -> 3600 s.
-  #    Gate: Wenn storage.cfg (content images/rootdir) einen der Pools
-  #    referenziert, ist das VM-Risiko real (Crash -> TXG-Daten bis
-  #    txg_timeout alt). idle_power_txg_force: true = bewusst erzwingen.
+  # 2) zfs_txg_timeout (MODUL-Parameter, global): 5 s -> 1800 s.
+  #   storage.cfg referenzert alle 3 Pools mit rootdir,images -> Gate schließt;
+  #    idle_power_txg_force: true = bewusst erzwingen (Marcel-OK 2026-10-11).
+  #    Crash-Fenster 30 min, Parkquote ~67% (txg > spin_timer 600s = 10 min).
   # ===================================================================
   - name: Lese aktuellen zfs_txg_timeout
     ansible.builtin.slurp:

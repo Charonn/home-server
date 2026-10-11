@@ -6,14 +6,14 @@ idle_power_governor_apply: true
 
 # ZFS TXG (MODUL-Parameter, global)
 idle_power_txg_enable: true
-idle_power_txg_timeout: 3600
-idle_power_txg_force: false
+idle_power_txg_timeout: 1800
+idle_power_txg_force: true
 
 # HDD Spin-Down
 idle_power_spin_enable: true
 idle_power_spin_apply_now: true
 idle_power_spin_apm: 127
-idle_power_spin_data_sec: 1200
+idle_power_spin_data_sec: 600
 idle_power_spin_backup_sec: 600
 idle_power_spin_boot_sec: 0
 # Pool-Rollen (verifiziert 2026-10-10 via zpool list + VM-Disk-Mapping):

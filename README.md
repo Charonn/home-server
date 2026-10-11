@@ -26,7 +26,7 @@ ansible-vault decrypt group_vars/all/default.vault.yml
 
 Reduziert den Idle-Verbrauch des PVE-Towers (Ryzen 7 5700G):
 CPU-Governor (`schedutil`, persistente systemd-Unit), ZFS-`txg_timeout`
-(3600 s, Gate gegen VM-Datenpools), HDD-Spin-Down via `hdparm -B/-S`
+(1800 s, Gate bewusst erzwungen — Marcel-OK), HDD-Spin-Down via `hdparm -B/-S`
 (Backup 10 min, Daten 20 min, Boot nie), smartd mit `-n standby,q`
 (kein Wecken der HDDs durch den 30-min-Poll). Details: Karte t_15bbb646.
 
