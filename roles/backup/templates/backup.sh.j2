@@ -14,6 +14,7 @@ export BORG_PASSPHRASE="{{ backup_borg_passphrase }}"
 CONTAINER_NAME="{{ backup_mariadb_container }}"
 USERNAME="{{ backup_mariadb_user }}"
 MARIADB_BACKUP_DIR="{{ backup_mariadb_backup_dir }}"
+MARIADB_BACKUP_DIR2="{{ backup_mariadb_backup_dir2 }}"
 DATA_SOURCE="{{ backup_borg_data_sources | join(' ') }}"
 BORG_LOCAL_REPO="{{ backup_borg_repo }}"
 BORG_BACKUP_NAME="{{ backup_borg_name }}"
@@ -56,17 +57,19 @@ echo "$(date +%Y%m%d_%H%M%S) - MariaDB Backup Start"
 mkdir -p "$MARIADB_BACKUP_DIR"
 
 databases=$(docker exec -i "$CONTAINER_NAME" mysql -u"$USERNAME" -e "SHOW DATABASES;" \
-  | grep -Ev "(Database|information_schema|performance_schema|sys)")
+  | grep -Ev "(Database|information_schema|performance_schema|sys)" || true)
 
 for db in $databases; do
   echo "Backing up database: $db"
   # --single-transaction: konsistenter Snapshot bei laufenden Schreibern (InnoDB)
   docker exec -i "$CONTAINER_NAME" mysqldump -u"$USERNAME" --single-transaction --databases "$db" \
     | gzip > "$MARIADB_BACKUP_DIR/${DATE}_${db}.sql.gz"
+  cp "$MARIADB_BACKUP_DIR/${DATE}_${db}.sql.gz" "$MARIADB_BACKUP_DIR2/${DATE}_${db}.sql.gz"
 done
 
 # dumps älter N Tage entfernen (Original: 356 Tage)
 find "$MARIADB_BACKUP_DIR" -type f -name "*.sql.gz" -mtime +{{ backup_mariadb_dump_retention_days }} -exec rm {} \;
+find "$MARIADB_BACKUP_DIR2" -type f -name "*.sql.gz" -mtime +{{ backup_mariadb_dump_retention_days }} -exec rm {} \;
 echo "$(date +%Y%m%d_%H%M%S) - MariaDB Backup End"
 
 STEP="Borg create"

@@ -14,6 +14,7 @@ backup_mariadb_container: "mariadb"
 backup_mariadb_user: "root"
 backup_mariadb_password: "{{ backup_mariadb_password_vault }}"
 backup_mariadb_backup_dir: /opt/mariadb_backup
+backup_mariadb_backup_dir2: /mnt/backups/mariadb   # Spiegel für Borg (DATA_SOURCE — Original-Verhalten)
 backup_mariadb_dump_retention_days: 356   # Original: -mtime +356
 
 # Borg-Datenquellen (identisch zum Original, ohne 'mariadb_backup'-Kopie — die geht nur ins Ziel)
