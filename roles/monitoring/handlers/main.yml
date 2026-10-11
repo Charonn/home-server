@@ -1,0 +1,21 @@
+---
+- name: restart node_exporter
+  ansible.builtin.systemd_service:
+    name: node_exporter
+    state: restarted
+    enabled: true
+  when: not ansible_check_mode
+
+- name: systemd daemon-reload
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: restart prometheus container
+  ansible.builtin.command: docker restart prometheus
+  delegate_to: home-server.shark-scylla.ts.net
+  changed_when: true
+
+- name: restart grafana container
+  ansible.builtin.command: docker restart grafana
+  delegate_to: home-server.shark-scylla.ts.net
+  changed_when: true

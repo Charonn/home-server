@@ -1,0 +1,22 @@
+---
+# node_exporter (Proxmox-Host) + Prometheus-Target-Erweiterung. Karte: t_6128e8c0
+
+monitoring_node_exporter_enable: true
+monitoring_node_exporter_version: "1.8.2"
+monitoring_node_exporter_arch: "amd64"
+monitoring_node_exporter_download_url: "https://github.com/prometheus/node_exporter/releases/download/v{{ monitoring_node_exporter_version }}/node_exporter-{{ monitoring_node_exporter_version }}.linux-{{ monitoring_node_exporter_arch }}.tar.gz"
+monitoring_node_exporter_install_dir: /usr/local/bin
+monitoring_node_exporter_service_user: nodeexp
+monitoring_node_exporter_web_listen: ":9100"
+monitoring_node_exporter_extra_flags:
+  - "--collector.zfs"
+  - "--collector.hwmeminfo"
+  - "--collector.systemd"
+
+# Prometheus scrape targets (in home-server prometheus.yml job nodeexp):
+monitoring_prometheus_node_targets:
+  - "ryzen.shark-scylla.ts.net:9100"
+  - "home-server.shark-scylla.ts.net:9100"
+
+# Grafana Node-Dashboard provisioning (community dashboard 1860 = node_exporter_full)
+monitoring_grafana_dashboard_1860: true
