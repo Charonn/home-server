@@ -1,0 +1,60 @@
+---
+# Backup-Rolle (home-server CT 102). Karte: t_63c81ce9.
+# Deploy-Sicherheit: bestehendes Script sichern, atomar ersetzen, check-mode-fähig.
+
+  - name: Sicherung des aktuellen backup.sh (falls vorhanden + noch unmanaged)
+    ansible.builtin.copy:
+      src: "{{ backup_script_path }}"
+      dest: "{{ backup_script_path }}.bak-{{ ansible_date_time.iso8601_basic_short }}"
+      remote_src: true
+      mode: preserve
+    when:
+      - backup_keep_original | bool
+      - not ansible_check_mode
+    failed_when: false
+    changed_when: false
+
+  - name: backup.sh.template erzeugen (Secrets aus Vault — nie im Klartext)
+    ansible.builtin.template:
+      src: backup.sh.j2
+      dest: "{{ backup_script_path }}.new"
+      owner: "{{ backup_script_owner }}"
+      group: "{{ backup_script_group }}"
+      mode: "{{ backup_script_mode }}"
+    no_log: false           # Klartext-Values landen NICHT im template-output; vault maskiert sie
+
+  - name: backup.sh atomar ersetzen (mv)
+    ansible.builtin.copy:
+      src: "{{ backup_script_path }}.new"
+      dest: "{{ backup_script_path }}"
+      owner: "{{ backup_script_owner }}"
+      group: "{{ backup_script_group }}"
+      mode: "{{ backup_script_mode }}"
+      remote_src: true
+    notify: backup script updated
+
+  - name: backup.sh.new aufgeräumt
+    ansible.builtin.file:
+      path: "{{ backup_script_path }}.new"
+      state: absent
+
+  - name: Log-Verzeichnis existiert
+    ansible.builtin.file:
+      path: "{{ backup_log_dir }}"
+      state: directory
+      owner: "{{ backup_script_owner }}"
+      group: "{{ backup_script_group }}"
+      mode: "0755"
+
+  - name: Crontab-Eintrag vorhanden? (Report-only — Marcel verwaltet crontab)
+    ansible.builtin.command: crontab -l
+    register: backup_crontab
+    changed_when: false
+    failed_when: false
+    check_mode: false
+
+  - name: Statistice (debug) — cron + log status
+    ansible.builtin.debug:
+      msg: >-
+        backup.sh deployed. crontab-Eintrag 01:05 bleibt unverändert (bewusst:
+        Marcel verwaltet cron selbst). telegram-Alert = follow-up-Karte.
