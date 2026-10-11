@@ -1,14 +1,13 @@
 #!/bin/bash
 # Managed by Ansible (role: backup) — DO NOT EDIT
-# Secrets come from Ansible Vault (injected as env at deploy time; NOT stored in this file).
-# Basis-Verhalten wie das Original-Script (Karte t_63c81ce9): MariaDB->Borg->rclone->Mail.
-# Verbesserungen (ohne Verhaltensänderung der Backup-Ergebnisse):
-#   set -euo pipefail, --single-transaction (konsistente dumps), trap EXIT für maintenance:mode,
-#   fassbare Fail-Logs + exit codes.
+# Secrets come from Ansible Vault (injected at deploy; NOT stored in this file).
+# Basis-Verhalten wie das Original (Karte t_63c81ce9): MariaDB -> Borg -> prune -> rclone.
+# Erweitert 2026-10-11 (Marcel-OK): borg-check-Gate, prune VOR create, woechentlicher Full-Check,
+#   leere-db-liste-Guard, rclone mit SKIP statt exit-1 (kein Script-Abbruch durch Parallel-Lauf).
 
 set -euo pipefail
 
-# --- Secrets/environment (vault-injected via deploy; not stored in this file) ---
+# --- Secrets/environment (vault-injected; not stored in this file) ---
 export MYSQL_PWD="{{ backup_mariadb_password }}"
 export BORG_PASSPHRASE="{{ backup_borg_passphrase }}"
 CONTAINER_NAME="{{ backup_mariadb_container }}"
@@ -19,15 +18,14 @@ DATA_SOURCE="{{ backup_borg_data_sources | join(' ') }}"
 BORG_LOCAL_REPO="{{ backup_borg_repo }}"
 BORG_BACKUP_NAME="{{ backup_borg_name }}"
 RCLONE_REMOTE="{{ backup_rclone_remote }}"
-# rclone keys are set by the rclone config on the host; they are NOT stored in this script.
-# (Wenn auf Vault-Env umgestellt wird: RCLONE_CONFIG_*_ACCESS_KEY_ID / SECRET_ACCESS_KEY)
+# rclone keys live in the rclone config on the host; NOT in this script.
 
 DATE=$(date +%Y%m%d_%H%M%S)
 START=$(date +%s)
 STEP=""
 
 cleanup() {
-    # Nextcloud maintenance:mode IMMER wieder off (auch bei Fehler)
+    # Nextcloud maintenance:mode IMMER wieder off (auch bei Fehler) — trap EXIT
     if [[ "${NC_MAINTENANCE_ON:-0}" == "1" ]]; then
         docker exec -u www-data nextcloud-app2 php occ maintenance:mode --off >/dev/null 2>&1 || true
         echo "$(date +%Y%m%d_%H%M%S) - maintenance:mode --off (cleanup)"
@@ -40,24 +38,44 @@ fail() {
     exit 1
 }
 
+log() { echo "$(date +%Y%m%d_%H%M%S) - $*"; }
+
+# ---------- Guards ----------
 if pidof -x borg >/dev/null; then
   echo "Backup already running"
   exit 0
 fi
 
-echo "$(date +%Y%m%d_%H%M%S) - Start Backups"
+# ---------- 1) borg check als GATE ----------
+# Quick-Check taeglich (kein Decrypt, nur Metadata/MAC-Verify via Read), Full-Check 1x/Woche
+# (vollstaendige Integritaetspruefung aller Segments; ~min bis einige Min je Repo-Size).
+STEP="borg check"
+if [[ "$(date +%u)" == "{{ backup_borg_check_full_weekday }}" ]]; then
+  log "Borg check (FULL) — woechentliche Integritaetspruefung"
+  borg check "$BORG_LOCAL_REPO" || fail "borg check (FULL) fehlgeschlagen — Repo-Integritaet fragwuerdig. KEIN create, KEIN prune, KEIN rclone sync (Cloud-Spiegel bleibt auf letztem guten Stand)!"
+else
+  log "Borg check (quick)"
+  borg check --max-duration {{ backup_borg_check_max_duration }} "$BORG_LOCAL_REPO" \
+    || fail "borg check (quick) fehlgeschlagen — kein Backup-Run!"
+fi
 
+# ---------- 2) Nextcloud maintenance ----------
 STEP="Nextcloud maintenance mode"
-echo "$(date +%Y%m%d_%H%M%S) - Start NextCloud Maintenance"
+log "Start NextCloud Maintenance"
 docker exec -u www-data nextcloud-app2 php occ maintenance:mode --on
 NC_MAINTENANCE_ON=1
 
+# ---------- 3) MariaDB dumps ----------
 STEP="MariaDB dumps"
-echo "$(date +%Y%m%d_%H%M%S) - MariaDB Backup Start"
+log "MariaDB Backup Start"
 mkdir -p "$MARIADB_BACKUP_DIR"
 
 databases=$(docker exec -i "$CONTAINER_NAME" mysql -u"$USERNAME" -e "SHOW DATABASES;" \
   | grep -Ev "(Database|information_schema|performance_schema|sys)" || true)
+
+if [[ -z "$databases" ]]; then
+  fail "Keine User-Datenbanken gefunden (mysql-fail oder Alle gefiltert) — Abbruch VOR borg/prune/rclone"
+fi
 
 for db in $databases; do
   echo "Backing up database: $db"
@@ -67,42 +85,51 @@ for db in $databases; do
   cp "$MARIADB_BACKUP_DIR/${DATE}_${db}.sql.gz" "$MARIADB_BACKUP_DIR2/${DATE}_${db}.sql.gz"
 done
 
-# dumps älter N Tage entfernen (Original: 356 Tage)
+# dumps aelter als RETENTION-Tage entfernen (Original: 356 Tage, beide DIRs)
 find "$MARIADB_BACKUP_DIR" -type f -name "*.sql.gz" -mtime +{{ backup_mariadb_dump_retention_days }} -exec rm {} \;
 find "$MARIADB_BACKUP_DIR2" -type f -name "*.sql.gz" -mtime +{{ backup_mariadb_dump_retention_days }} -exec rm {} \;
-echo "$(date +%Y%m%d_%H%M%S) - MariaDB Backup End"
+log "MariaDB Backup End"
 
-STEP="Borg create"
-echo "$(date +%Y%m%d_%H%M%S) - Borg create Start"
-borg create --stats --progress \
-  "$BORG_LOCAL_REPO"::"$(date +%Y-%m-%d)-${BORG_BACKUP_NAME}" \
-  $DATA_SOURCE
-
+# maintenance:mode SOBALD wie moeglich wieder off — borg/prune brauchen NC nicht im Maintenance-Modus
 STEP="Nextcloud maintenance off"
-echo "$(date +%Y%m%d_%H%M%S) - Nextcloud maintenance:mode --off"
+log "Nextcloud maintenance:mode --off"
 docker exec -u www-data nextcloud-app2 php occ maintenance:mode --off
 NC_MAINTENANCE_ON=0
 
+# ---------- 4) Borg PRUNE VOR create ----------
+# Grund (statt create-then-prune): Prune gibt Speicher/Archiv-Slots frei, und es prueft beim
+# Durchlaufen der Segmente die Repo-Struktur. Wenn prune fehlschlaegt, brechen wir ab —
+# kein create auf ein moeglicherweise korruptes Repo, kein rclone-Sync eines Fehlstands.
 STEP="Borg prune"
-echo "$(date +%Y%m%d_%H%M%S) - Borg prune Start"
+log "Borg prune Start"
 borg prune --list --stats "$BORG_LOCAL_REPO" \
   --keep-daily={{ backup_borg_keep_daily }} \
   --keep-weekly={{ backup_borg_keep_weekly }} \
   --keep-monthly={{ backup_borg_keep_monthly }} \
   --keep-yearly={{ backup_borg_keep_yearly }}
 
+# ---------- 5) Borg create ----------
+STEP="Borg create"
+log "Borg create Start"
+borg create --stats --progress \
+  "$BORG_LOCAL_REPO"::"$(date +%Y-%m-%d)-${BORG_BACKUP_NAME}" \
+  $DATA_SOURCE
+
+# ---------- 6) rclone sync (NUR nach erfolgreichem borg create+prune) ----------
 STEP="rclone sync"
 if pgrep -x "rclone" > /dev/null; then
-  echo "rclone is already running. Exiting..."
-  exit 1
+  # Skip statt exit-1: kein Parallel-Sync, aber borg-Ergebnis stand heute trotzdem
+  log "rclone already running — SKIP (Cloud-Spiegel haellt bis zum naechsten Lauf)"
+else
+  log "Start rclone"
+  rclone sync "$BORG_LOCAL_REPO" "$RCLONE_REMOTE" -v
 fi
-echo "$(date +%Y%m%d_%H%M%S) - Start rclone"
-rclone sync "$BORG_LOCAL_REPO" "$RCLONE_REMOTE" -v
 
+# ---------- Zusammenfassung ----------
 STEP="done"
 END=$(date +%s)
 RUNTIME=$((END - START))
 MINUTES=$((RUNTIME / 60))
 SECONDS=$((RUNTIME % 60))
-echo "$(date +%Y%m%d_%H%M%S) - Backup completed successfully in $MINUTES:$SECONDS"
+log "Backup completed successfully in $MINUTES:$SECONDS"
 echo

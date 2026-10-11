@@ -38,3 +38,7 @@ backup_rclone_secret_key: "{{ backup_rclone_secret_key_vault }}"
 
 # Notification: Mail (bestehend); Telegram-Alert = follow-up (send-alert.sh-Rezept existiert)
 backup_mail_to: marcel.hufnagel@gmx.net
+
+# borg check (Integritäts-Gate VOR jedem create/prune/rclone):
+backup_borg_check_full_weekday: "0"    # 0=Sonntag: Full-Check (komplette Segment-Prüfung)
+backup_borg_check_max_duration: 300    # quick-check max Dauer in Sekunden (danach Abbruch, kein Backup)
