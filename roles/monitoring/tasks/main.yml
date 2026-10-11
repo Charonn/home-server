@@ -22,7 +22,9 @@
     register: monitoring_ne_dl
     when: monitoring_node_exporter_enable | bool
 
-  - name: Install node_exporter binary
+  # check-mode: das /tmp-Binary entsteht erst durch den realen unarchive — copy mit
+  # remote_src scheitert im Check an fehlender Source. bewusst SKIP im check:
+  - name: Install node_exporter binary (skip im check-mode — Source entsteht erst im Real-Run)
     ansible.builtin.copy:
       src: "/tmp/node_exporter-{{ monitoring_node_exporter_version }}.linux-{{ monitoring_node_exporter_arch }}/node_exporter"
       dest: "{{ monitoring_node_exporter_install_dir }}/node_exporter"
@@ -31,7 +33,7 @@
       group: root
       remote_src: true
     notify: restart node_exporter
-    when: monitoring_node_exporter_enable | bool
+    when: monitoring_node_exporter_enable | bool and not ansible_check_mode
 
   - name: systemd unit node_exporter
     ansible.builtin.template:
