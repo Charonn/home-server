@@ -1,4 +1,5 @@
 ---
+# Prometheus/Grafana-Konfiguration im home-server-CT (nativ, kein delegate).
   # ===================================================================
   # 2) Prometheus scrape targets erweitern (home-server-CT Rolle, internet-monitoring)
   #    Die Datei liegt in /opt/internet-monitoring/prometheus-config/prometheus.yml
