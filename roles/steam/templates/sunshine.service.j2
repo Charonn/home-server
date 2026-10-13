@@ -1,0 +1,25 @@
+[Unit]
+Description=Sunshine game stream host (on NVIDIA Xorg {{ steam_x_display }})
+After=network.target xorg-virtual.service
+Wants=xorg-virtual.service
+
+[Service]
+Type=simple
+User={{ steam_sunshine_user }}
+Group={{ steam_sunshine_user }}
+Environment=DISPLAY={{ steam_x_display }}
+Environment=XAUTHORITY=/tmp/.Xauthority
+Environment=HOME=/home/{{ steam_sunshine_user }}
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+WorkingDirectory=/home/{{ steam_sunshine_user }}
+
+PermissionsStartOnly=true
+ExecStartPre={{ steam_bin_dir }}/sunshine-setup.sh
+ExecStart={{ steam_bin_dir }}/sunshine-start.sh
+
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

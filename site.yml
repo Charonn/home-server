@@ -4,6 +4,9 @@
   become: yes
   roles:
     - role: proxmox_host
+    - role: nvidia_driver
+      tags:
+        - "nvidia_driver"
     - role: idle_power
       tags:
         - "idle_power"
@@ -30,3 +33,13 @@
     - role: "backup"
       tags:
         - "backup"
+    - role: "home_server_gpu"
+      tags:
+        - "nvidia_driver"
+
+- hosts: steam_host
+  become: yes
+  roles:
+    - role: steam
+      tags:
+        - "steam"

@@ -1,0 +1,162 @@
+---
+# nvidia_driver: install/upgrade the host NVIDIA driver via official .run installer
+# Target: Proxmox host `proxmox_ryzen` (ryzen, RTX 3070 Ti / GA104 [10de:2482]).
+#
+# Single source of truth: nvidia_driver_version in group_vars/all/default.yml.
+# home-server (steam-headless container env) and steam (CT userspace overlay)
+# MUST run the same userspace version — never bump one without the others.
+#
+# Check-mode contract (CI runs site.yml with --check against live hosts):
+#  * all discovery tasks: check_mode: false, changed_when: false
+#  * all download/install/service tasks: skipped in check mode via
+#    `when: not ansible_check_mode` — CI verifies syntax + pre-state only.
+#  * file modules (get_url would download ~400 MB in check mode on EVERY
+#    CI run) get `when: not ansible_check_mode` too.
+#
+# Reboot handling: none — the upgrade needs a reboot to unload the old module.
+# The role prints a reminder; Marcel reboots the host himself (power tuning
+# and PVE state live on the same box) and re-runs the tag afterwards if any
+# userspace steps need a fresh module.
+
+- name: NVIDIA driver — discovery (read-only)
+  check_mode: false
+  changed_when: false
+  ansible.builtin.shell: |
+    set -u
+    echo "smi=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)"
+    echo "loaded=$(lsmod | awk '$1=="nvidia" {print "yes"; found=1} END{if(!found) print "no"}')"
+    echo "kernel=$(uname -r)"
+    echo "glvnd=$(ldconfig -p 2>/dev/null | awk '/libnvidia-glcore/ {print $NF; exit}')"
+    echo "cached=$(test -f {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }} && echo yes || echo no)"
+    echo "gpu=$(lspci -nn -d 10de: 2>/dev/null | grep -c 'VGA compatible')|$(lspci -nn -d 10de: 2>/dev/null | head -1 | sed 's/^.*NVIDIA Corporation //; s/ \[.*//')"
+  args:
+    executable: /bin/bash
+  register: nvidia_disc
+
+- name: NVIDIA driver — build state dict (parse-friendly)
+  ansible.builtin.set_fact:
+    nvidia_state: >-
+      {%- set d = {} -%}
+      {%- for line in nvidia_disc.stdout_lines -%}
+        {%- set kv = line.split('=', 1) -%}
+        {%- if kv[0] in ['smi', 'loaded', 'kernel', 'glvnd', 'cached', 'gpu'] -%}
+          {%- set _ = d.update({kv[0]: kv[1]}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ d }}
+
+- name: NVIDIA driver — current state summary
+  ansible.builtin.debug:
+    msg: >-
+      driver: {{ nvidia_state.smi | default('none') }} ->
+      {{ nvidia_driver_version }} | module loaded: {{ nvidia_state.loaded |
+      default('?') }} | kernel: {{ nvidia_state.kernel | default('?') }} |
+      installer cached: {{ nvidia_state.cached | default('no') }} |
+      gpu: {{ nvidia_state.gpu | default('?') }}
+
+- name: NVIDIA driver — assert the 3070 Ti is present
+  ansible.builtin.assert:
+    that: "'RTX 3070 Ti' in nvidia_state.gpu"
+    fail_msg: >-
+      No RTX 3070 Ti visible on the PCI bus — refusing to install a driver
+      that does not match this machine. Check passthrough/shutdown state.
+    success_msg: RTX 3070 Ti present — proceeeding.
+  when: not ansible_check_mode
+
+- name: NVIDIA driver — install dir
+  ansible.builtin.file:
+    path: "{{ nvidia_driver_cache_dir }}"
+    state: directory
+    mode: '0755'
+  when: not ansible_check_mode
+
+- name: NVIDIA driver — fetch installer into cache (skipped when cached)
+  ansible.builtin.command: >-
+    curl -fL --retry 3 -o "{{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}"
+    {{ nvidia_driver_base_url }}{{ nvidia_driver_run_name }}
+  args:
+    creates: "{{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}"
+  when: >-
+    not ansible_check_mode
+    and nvidia_state.cached | default('no') != 'yes'
+  changed_when: true
+
+# sha256 check is a WRITE-scope action? No: pure read. Runs in check mode too,
+# but the file won't exist during CI check → guard with cached=yes.
+- name: NVIDIA driver — verify installer checksum
+  ansible.builtin.command: >-
+    sha256sum --check --status /dev/stdin
+  args:
+    stdin: "{{ nvidia_driver_run_sha256 }}  {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}"
+  changed_when: false
+  when: >-
+    not ansible_check_mode
+    and nvidia_state.cached | default('no') | bool
+  register: nvidia_sha
+
+- name: NVIDIA driver — fail on checksum mismatch
+  ansible.builtin.fail:
+    msg: >-
+      sha256 of {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}
+      does not match the pinned value in role defaults — refusing install.
+  when: >-
+    nvidia_sha is skipped or (nvidia_state.cached | default('no') == 'yes'
+    and not (nvidia_sha.rc | default(1) == 0) and not ansible_check_mode)
+
+- name: NVIDIA driver — blacklist nouveau
+  ansible.builtin.template:
+    src: blacklist-nouveau.conf.j2
+    dest: /etc/modprobe.d/blacklist-nouveau-nvidia-driver.conf
+    mode: '0644'
+  when: nvidia_driver_blacklist_nouveau | bool
+  notify: nvidia — update initramfs
+
+- name: NVIDIA driver — DRM modeset option
+  ansible.builtin.template:
+    src: nvidia-drm-modeset.conf.j2
+    dest: /etc/modprobe.d/nvidia-drm-modeset-nvidia-driver.conf
+    mode: '0644'
+  when: nvidia_driver_drm_modeset | bool
+  notify: nvidia — update initramfs
+
+# .run --silent builds the module for the RUNNING kernel in place; replaces
+# the existing 580 install cleanly. Does NOT use DKMS (see defaults).
+- name: NVIDIA driver — run installer (this upgrades the driver)
+  ansible.builtin.expect:
+    command: >-
+      bash {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}
+      {{ nvidia_driver_install_flags }}
+    responses:
+      # license/success prompts are silenced by --silent; keep a catch-all
+      (.*)\s*license accepted: 'y'
+  when: not ansible_check_mode
+  changed_when: true
+  notify: nvidia — update initramfs
+
+- name: NVIDIA driver — verify post-install driver version
+  check_mode: false
+  ansible.builtin.command: nvidia-smi --query-gpu=driver_version --format=csv,noheader
+  register: nvidia_smi_after
+  changed_when: false
+  when: not ansible_check_mode
+  failed_when: >-
+    (nvidia_smi_after.stdout | trim) != nvidia_driver_version
+    and nvidia_sha is not skipped
+
+- name: NVIDIA driver — persistence daemon
+  ansible.builtin.systemd_service:
+    name: nvidia-persistenced.service
+    enabled: "{{ nvidia_driver_persistenced | bool }}"
+    state: "{{ omit if ansible_check_mode else 'started' }}"
+  when: nvidia_driver_persistenced | bool
+
+- name: NVIDIA driver — reboot reminder
+  ansible.builtin.debug:
+    msg: |
+      NVIDIA driver {{ nvidia_driver_version }} install/upgrade finished
+      (if this ran in apply mode). A reboot is required to swap the kernel
+      module if the installed version differs from the loaded one — check:
+        nvidia-smi   (driver_version col vs loaded module)
+      After reboot, re-apply the steam/headless tags if userspace needed
+      a reinstall against the new module.
+  when: not ansible_check_mode

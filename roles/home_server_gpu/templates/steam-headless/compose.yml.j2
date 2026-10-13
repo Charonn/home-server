@@ -1,0 +1,138 @@
+---
+# Compose for the steam-headless stack on home-server (LXC Docker).
+# Source: /opt/steam-headless/compose.yml (live config 2026-10-13, read via
+# the remote-read channel; secrets REPLACED with vault placeholders — the
+# PR diff must stay password-free per standing rule).
+#
+# Deployment path: docker-in-LXC — the container installs its own NVIDIA
+# userspace (NVIDIA_DRIVER_VERSION pins the version, empty = auto-match via
+# nvidia-smi probe) and mounts the passthrough device nodes from the LXC.
+# Capture needs the keylase NvFBC patch (NVIDIA_PATCH_VERSION=master).
+#
+# The docker-compose task in tasks/main.yml consumes this via
+# `src: compose.yml.j2` + `project_dir` — secrets resolve from
+# group_vars vault vars at render time. NEVER hardcode here.
+
+services:
+  steam-headless:
+    image: josh5/steam-headless:latest
+    container_name: steam-headless
+    restart: unless-stopped
+    shm_size: "2g"
+    ipc: host
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 524288
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_NICE
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+
+    # GPU passthrough: Docker-in-LXC path (see note above).
+    network_mode: host
+    hostname: SteamHeadless
+    extra_hosts:
+      - "SteamHeadless:127.0.0.1"
+
+    environment:
+      # System
+      - TZ=Europe/Berlin
+      - USER_LOCALES=de_DE.UTF-8 UTF-8
+      - DISPLAY=:55
+      # User (password from vault — rendered to compose at runtime)
+      - PUID=1000
+      - PGID=1000
+      - UMASK=000
+      - USER_PASSWORD={{ steam_headless_user_password }}
+      # Mode
+      - MODE=primary
+      # Web UI (noVNC on http://<host>:8083)
+      - WEB_UI_MODE=vnc
+      - ENABLE_VNC_AUDIO=true
+      - PORT_NOVNC_WEB=8083
+      - NEKO_NAT1TO1=
+      # Steam
+      - ENABLE_STEAM=true
+      - STEAM_ARGS=
+      # Sunshine (Moonlight server)
+      - ENABLE_SUNSHINE=true
+      - SUNSHINE_USER=marcel
+      - SUNSHINE_PASS={{ steam_headless_sunshine_password }}
+      # Xorg (no monitor attached to the LXC - use dummy video config)
+      - ENABLE_EVDEV_INPUTS=true
+      - FORCE_X11_DUMMY_CONFIG=true
+      # Nvidia specific:
+      # pinned to the GLOBAL driver version (group var, single source of truth;
+      # auto-detect via nvidia-smi works on the LXC but pinning keeps all three
+      # consumers — host, CT 110, this container — provably on one version).
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_VERSION={{ nvidia_driver_version }}
+      # keylase patch: enables NvFBC capture (required for headless NVIDIA)
+      - NVIDIA_PATCH_VERSION=master
+
+    devices:
+      # Host fuse device [REQUIRED]
+      - /dev/fuse
+      # uinput device [REQUIRED] (Sunshine virtual input)
+      - /dev/uinput
+      # NVIDIA device nodes (present in the LXC via passthrough)
+      # /dev/nvidia-modeset is created by the nvidia-modeset repair unit on
+      # the host - required by libnvidia-fbc (NvFBC capture)
+      - /dev/nvidia0
+      - /dev/nvidiactl
+      - /dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset
+      # DRM/KMS nodes (NVIDIA card + render node, mounted by-path) - required
+      # for Sunshine kmsgrab capture. Without these, no encoder works.
+      - /dev/dri/card0
+      - /dev/dri/renderD129
+
+    device_cgroup_rules:
+      - 'c 13:* rmw'
+
+    volumes:
+      # Home directory + NVIDIA driver download cache. On image/container
+      # recreation the entrypoint reuses ~/Downloads/NVIDIA_<version>.run
+      # (re-downloads only when this pin changes) and re-extracts userspace.
+      - /opt/steam-headless/home/:/home/default/:rw
+      # Games library path (set as Steam library after first login)
+      - /opt/steam-headless/games/:/mnt/games/:rw
+      # Xorg socket
+      - /opt/steam-headless/sockets/.X11-unix/:/tmp/.X11-unix/:rw
+      # Pulse audio socket
+      - /opt/steam-headless/sockets/pulse/:/tmp/pulse/:rw
+      # Physical input devices (Docker-in-LXC robustness; Xorg device detection
+      # and Sunshine virtual input). NOTE: do NOT mount /run/udev/data here —
+      # dumb-udev chmods/creates it itself; a read-only mount crashes it.
+      - /dev/input/:/dev/input/:rw
+      # Patched input-sync helper: prevents the Xorg restart crash loop
+      # (upstream issue #231)
+      - /opt/steam-headless/overrides/start-dumb-udev.sh:/usr/bin/start-dumb-udev.sh:ro
+
+  ts-steam-headless:
+    # Tailscale sidecar giving the Steam Headless web UI its own MagicDNS
+    # name (https://steam-headless.<tailnet>.ts.net). Cannot share the
+    # steam-headless network namespace (host network), so it runs on its own
+    # bridge and proxies to the host port via host.docker.internal.
+    # Moonlight/Sunshine streaming connects to the LXC directly (UDP cannot
+    # be proxied by tailscale serve).
+    image: tailscale/tailscale:v1.96.5
+    container_name: ts-steam-headless
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: "{{ steam_headless_tailscale_authkey }}"
+      TS_EXTRA_ARGS: "--hostname=steam-headless"
+      TS_SERVE_CONFIG: "/config/config.json"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_USERSPACE: "true"
+    volumes:
+      - "/opt/steam-headless/tailscale/state:/var/lib/tailscale"
+      - "/opt/steam-headless/tailscale/config:/config"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

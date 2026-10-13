@@ -1,0 +1,17 @@
+---
+# vault placeholders for the steam-headless compose (added by PR: nvidia driver
+# + steam host). Resolve these by ENCRYPTING real values into
+# group_vars/all/default.vault.yml (ansible-vault encrypt_string --name <var>).
+# The compose template (roles/home_server_gpu/templates/steam-headless/compose.yml.j2)
+# consumes them; the rendered file on the host is 0600 root-only.
+#
+# Required vault keys (operator adds the VALUES, Marcel):
+#   steam_headless_user_password      current value lives in the live compose
+#                                     on home-server (USER_PASSWORD=...)
+#   steam_headless_sunshine_password  current value lives in the live compose
+#                                     (SUNSHINE_PASS=...)
+#   steam_headless_tailscale_authkey  current value lives in the live compose
+#                                     (ts-steam-headless TS_AUTHKEY=...)
+steam_headless_user_password: "{{ steam_headless_user_password_vault }}"
+steam_headless_sunshine_password: "{{ steam_headless_sunshine_password_vault }}"
+steam_headless_tailscale_authkey: "{{ steam_headless_tailscale_authkey_vault }}"

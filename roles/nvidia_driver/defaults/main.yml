@@ -1,0 +1,26 @@
+---
+# nvidia_driver role — defaults. Version/URL/sha256 come from
+# group_vars/all/nvidia_driver.yml (single source of truth for the whole GPU
+# stack: ryzen host, steam CT userspace, home-server steam-headless container).
+# These role defaults are fallbacks only and must not drift from group_vars.
+
+# Installer flags (silent install; no X config — server runs headless Xorg :99)
+nvidia_driver_install_flags: "--silent"
+# DKMS integration: the .run ships its own module; keep DKMS off to avoid
+# double-module states with the distro packages (535 stack is still installed).
+nvidia_driver_dkms: false
+
+# nvidia-smi persistence mode + systemd unit for it (prevents GPU state loss
+# on close during LXC attach; standard PVE-passthrough practice)
+nvidia_driver_persistenced: true
+
+# DRM modeset (needed for /dev/dri/card0 render node in CTs and PRIME render)
+nvidia_driver_drm_modeset: true
+
+# Extra blacklist entries for nouveau (already blacklisted on ryzen; idempotent)
+nvidia_driver_blacklist_nouveau: true
+
+# Upgrades between versions: the .run installer replaces in place via --silent.
+# If set to true, purge distro nvidia packages first — NOT default because the
+# GLVND/GLX stack is shared with CT userspace installs.
+nvidia_driver_purge_distro_packages: false
