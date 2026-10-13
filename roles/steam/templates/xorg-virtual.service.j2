@@ -1,0 +1,15 @@
+[Unit]
+Description=Virtual X Server with NVIDIA
+After=network.target
+
+[Service]
+Type=simple
+Environment=DISPLAY={{ steam_x_display }}
+ExecStartPre=/bin/bash -c 'pkill Xorg; sleep 2'
+ExecStart=/usr/bin/Xorg {{ steam_x_display }} -config /etc/X11/xorg.conf.d/10-nvidia-virtual.conf -nocursor -verbose 3
+User=root
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

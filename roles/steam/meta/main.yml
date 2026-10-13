@@ -1,0 +1,8 @@
+---
+# steam role — meta
+galaxy_info:
+  author: Marcel H + Hermes Agent
+  description: Baseline management of Proxmox CT 110 (steam gaming container)
+  license: MIT
+  min_ansible_version: '2.16'
+dependencies: []

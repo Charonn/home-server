@@ -1,0 +1,15 @@
+#!/bin/bash
+# Managed by ansible (role steam) — do not edit
+# Start openbox + xfce4-panel + xfdesktop + picom on {{ steam_x_display }}.
+set -e
+export DISPLAY={{ steam_x_display }}
+export XAUTHORITY=/tmp/.Xauthority
+export HOME=/home/opencode
+export XDG_RUNTIME_DIR=/run/user/1001
+
+/usr/bin/openbox &
+/usr/bin/xfce4-panel &
+/usr/bin/xfdesktop &
+/usr/bin/picom -b --config /etc/xdg/picom.conf
+
+wait

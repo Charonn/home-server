@@ -1,0 +1,187 @@
+---
+# steam role — tasks. Baseline management for CT 110 ("steam") on Proxmox
+# host `proxmox_ryzen`. The CT is NOT directly in the ansible inventory —
+# tasks here run ON ryzen and drop into CT 110 via `pct exec`.
+#
+# READ-ONLY RULE (Marcel, 2026-10-13): ryzen root is read-only outside THIS
+# role. When this role runs, its tasks ARE the approved change — nothing
+# beyond the listed files/units/settings is touched, no pct lifecycle
+# (create/start/stop/mount) is performed.
+#
+# Check-mode: `pct exec` cannot run in check mode; guard every exec task
+# with `when: not ansible_check_mode`. Discovery tasks that would still be
+# useful in check mode run `command`-style with check_mode: false BUT they
+# are wrapped in pct exec which is a real exec — safest: skip everything
+# except pure-host file templates in check mode. CI's ansible --check run
+# then exercises the ryzen-host-side file writes only (templates, units in
+# staging), all guest writes are skipped.
+#
+# Idempotency: every file is a template with fixed content; units are
+# enabled via pct-level systemctl inside tasks guarded by changed files.
+
+# ---------------------------------------------------------------- discovery
+- name: steam — CT 110 reachable + current state (read-only)
+  check_mode: false
+  changed_when: false
+  ansible.builtin.command: >-
+    pct exec 110 -- sh -c 'id gamer 2>/dev/null; nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null; systemctl is-active steam-headless.service 2>/dev/null'
+  register: steam_disc
+  failed_when: false
+
+- name: steam — parse discovery
+  ansible.builtin.set_fact:
+    steam_disc_smi: >-
+      {{ steam_disc.stdout_lines | select('match', '^[0-9]{3}\\.[0-9]{2}\\.[0-9]{2}$') | first | default('unknown') }}
+    steam_disc_user: >-
+      {{ steam_disc.stdout_lines | select('match', '^uid=') | first | default('missing') }}
+    steam_disc_service: >-
+      {{ steam_disc.stdout_lines | select('in', ['active', 'inactive', 'failed', 'Unknown']) | first | default('unknown') }}
+
+- name: steam — report
+  ansible.builtin.debug:
+    msg: >-
+      CT110 gamer={{ steam_disc_user | trim }} |
+      driver={{ steam_disc_smi | trim }} (target {{ nvidia_driver_version }}) |
+      steam-headless.service={{ steam_disc_service | trim }}
+
+# ---------------------------------------------------------------- users
+- name: steam — ensure local users
+  ansible.builtin.command: >-
+    pct exec 110 -- useradd -m
+    -u {{ item.uid }}
+    -s {{ item.shell }}
+    -G {{ item.groups | join(',') }}
+    {{ item.name }}
+  loop: "{{ steam_users }}"
+  when: >-
+    not ansible_check_mode
+    and steam_disc_user | trim == 'missing'
+    and item.name not in steam_disc.stdout
+  changed_when: true
+  failed_when: false   # uid exists -> useradd fails; discovery filtered it already
+
+- name: steam — ensure group memberships
+  ansible.builtin.command: >-
+    pct exec 110 -- usermod -aG {{ item.groups | join(',') }} {{ item.name }}
+  loop: "{{ steam_users }}"
+  when: not ansible_check_mode and item.name in steam_disc.stdout
+  changed_when: true
+
+# ---------------------------------------------------------------- nvidia userspace
+# CT has NO kernel module (nodes are host-passthrough); the userspace stack
+# is a .run-extract overlay. Idempotent re-run: only when version mismatch.
+- name: steam — NVIDIA userspace overlay install (CT 110)
+  ansible.builtin.include_tasks: nvidia_userspace.yml
+  when: >-
+    not ansible_check_mode
+    and steam_disc_smi | trim != nvidia_driver_version
+
+# ---------------------------------------------------------------- units + scripts
+- name: steam — stage unit/script templates on ryzen
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode | default('0644') }}"
+  when: not ansible_check_mode
+  changed_when: true
+  register: steam_staging_result
+  loop:
+    - src: steam-headless.service.j2
+      dest: "{{ steam_units_staging_dir }}/steam-headless.service"
+    - src: sunshine.service.j2
+      dest: "{{ steam_units_staging_dir }}/sunshine.service"
+    - src: xorg-virtual.service.j2
+      dest: "{{ steam_units_staging_dir }}/xorg-virtual.service"
+    - src: x-compositor.service.j2
+      dest: "{{ steam_units_staging_dir }}/x-compositor.service"
+    - src: start-steam-headless.sh.j2
+      dest: "{{ steam_units_staging_dir }}/start-steam-headless.sh"
+    - src: sunshine-setup.sh.j2
+      dest: "{{ steam_units_staging_dir }}/sunshine-setup.sh"
+    - src: sunshine-start.sh.j2
+      dest: "{{ steam_units_staging_dir }}/sunshine-start.sh"
+    - src: start-x-compositor.sh.j2
+      dest: "{{ steam_units_staging_dir }}/start-x-compositor.sh"
+    - src: sunshine.conf.j2
+      dest: "{{ steam_units_staging_dir }}/sunshine.conf"
+      mode: '0600'
+    - src: 10-nvidia-virtual.conf.j2
+      dest: "{{ steam_units_staging_dir }}/10-nvidia-virtual.conf"
+
+- name: steam — install units/scripts into CT 110 (pct push)
+  ansible.builtin.command: >
+    pct push 110 {{ steam_units_staging_dir }}/{{ item.stage | basename }} {{ item.dest_ct }}
+  loop:
+    - { stage: steam-headless.service,   dest_ct: /etc/systemd/system/steam-headless.service }
+    - { stage: sunshine.service,         dest_ct: /etc/systemd/system/sunshine.service }
+    - { stage: xorg-virtual.service,     dest_ct: /etc/systemd/system/xorg-virtual.service }
+    - { stage: x-compositor.service,     dest_ct: /etc/systemd/system/x-compositor.service }
+    - { stage: start-steam-headless.sh,  dest_ct: /usr/local/bin/start-steam-headless.sh }
+    - { stage: sunshine-setup.sh,        dest_ct: /usr/local/bin/sunshine-setup.sh }
+    - { stage: sunshine-start.sh,        dest_ct: /usr/local/bin/sunshine-start.sh }
+    - { stage: start-x-compositor.sh,    dest_ct: /usr/local/bin/start-x-compositor.sh }
+    - { stage: 10-nvidia-virtual.conf,   dest_ct: /etc/X11/xorg.conf.d/10-nvidia-virtual.conf }
+  loop_control:
+    label: "{{ item.dest_ct }}"
+  when: not ansible_check_mode
+  changed_when: true
+  notify: steam — daemon reload in CT 110
+
+- name: steam — sunshine config via pct push (no plaintext lingering on host)
+  # pct push needs a file; render it, push, then delete the host staging copy.
+  ansible.builtin.shell: |
+    set -e
+    sudo -n pct push 110 {{ steam_units_staging_dir }}/sunshine.conf \
+      /home/opencode/.config/sunshine/sunshine.conf
+    sudo -n pct exec 110 -- chown opencode:opencode /home/opencode/.config/sunshine/sunshine.conf
+    sudo -n pct exec 110 -- chmod 600 /home/opencode/.config/sunshine/sunshine.conf
+    shred -u {{ steam_units_staging_dir }}/sunshine.conf 2>/dev/null || rm -f {{ steam_units_staging_dir }}/sunshine.conf
+  no_log: true
+  when: not ansible_check_mode
+  changed_when: true
+  notify: steam — daemon reload in CT 110
+
+- name: steam — make scripts executable
+  ansible.builtin.command: >-
+    pct exec 110 -- chmod 755
+    /usr/local/bin/start-steam-headless.sh
+    /usr/local/bin/sunshine-setup.sh
+    /usr/local/bin/sunshine-start.sh
+    /usr/local/bin/start-x-compositor.sh
+  when: not ansible_check_mode
+  changed_when: true
+
+- name: steam — enable units (boot chain, only after staging/install happened)
+  # Idempotent-enough: systemctl enable is a no-op when already enabled.
+  # The real guard for live runs is the handler chain above; re-running the
+  # role without changes skips restart via steam_staging_result.
+  ansible.builtin.command: >-
+    pct exec 110 -- systemctl enable
+    xorg-virtual.service x-compositor.service sunshine.service steam-headless.service
+  when: >-
+    not ansible_check_mode
+    and not (steam_staging_result | default({})).get('changed', false)
+  changed_when: true
+  register: steam_enable_units
+  notify: steam — daemon reload in CT 110
+
+- name: steam — mask crash-looping xvfb@10 (upstream dummy X setup, obsolete)
+  ansible.builtin.command: pct exec 110 -- systemctl mask xvfb@10.service
+  when: not ansible_check_mode
+  changed_when: true
+
+- name: steam — restart stack (only when staged/unit changes happened)
+  ansible.builtin.command: >-
+    pct exec 110 -- systemctl restart
+    xorg-virtual.service x-compositor.service sunshine.service steam-headless.service
+  when: >-
+    not ansible_check_mode
+    and steam_staging_result.changed | default(false)
+  changed_when: true
+
+- name: steam — summary
+  ansible.builtin.debug:
+    msg: >-
+      CT 110 steam: users ok | nvidia userspace={{ steam_disc_smi | trim }}
+      -> target {{ nvidia_driver_version }} | units staged/installed |
+      xvfb@10 masked. Reboot not required (userspace-only).

@@ -1,0 +1,44 @@
+#!/bin/bash
+# Managed by ansible (role steam) — do not edit
+# Steam startup script — launches Steam as a normal windowed app
+# within the XFCE desktop on X display {{ steam_x_display }}.
+# The desktop (openbox + xfce4-panel + xfdesktop + picom) is started
+# separately by x-compositor.service.
+
+export DISPLAY={{ steam_x_display }}
+export XAUTHORITY=/tmp/.Xauthority
+export HOME=/home/opencode
+
+# Audio (PulseAudio via PipeWire for user opencode)
+export XDG_RUNTIME_DIR=/run/user/1001
+export SDL_AUDIODRIVER=pulse
+export PULSE_SERVER=unix:/run/user/1001/pulse/native
+
+# NVIDIA env: single-GPU headless — NVIDIA is the default GLX/Vulkan driver.
+# Keep only VK_ICD_FILENAMES to avoid the llvmpipe (software Vulkan) fallback.
+export VK_ICD_FILENAMES={{ steam_vk_icd }}
+unset __NV_PRIME_RENDER_OFFLOAD 2>/dev/null || true
+unset __GLX_VENDOR_LIBRARY_NAME 2>/dev/null || true
+unset __VK_LAYER_NV_optimus 2>/dev/null || true
+export STEAM_RUNTIME=1
+export STEAM_RUNTIME_PREFER_HOST_LIBRARIES=1
+# WineD3D (OpenGL) for Windows games: Vulkan-present-to-window fails in this
+# headless X setup (GL works). Revert when a fixed DXVK/driver build lands.
+export PROTON_USE_WINED3D=1
+export STEAM_REMOTE_PLAY_GPU_ENCODING=1
+
+# Wait for X server and compositor
+for i in {1..30}; do
+    if xset -q > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# Enable persistence mode via nvidia-smi if available
+if command -v nvidia-smi > /dev/null; then
+    nvidia-smi -pm 1 > /dev/null 2>&1 || true
+fi
+
+# Start Steam in normal desktop mode (windowed, not Big Picture)
+exec /usr/bin/steam -silent

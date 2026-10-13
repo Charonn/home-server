@@ -1,0 +1,8 @@
+---
+# home_server_gpu role — meta
+galaxy_info:
+  author: Marcel H + Hermes Agent
+  description: NVIDIA consumer stack on the ryzen home-server LXC (steam-headless)
+  license: MIT
+  min_ansible_version: '2.16'
+dependencies: []
