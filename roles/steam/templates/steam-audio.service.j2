@@ -1,0 +1,32 @@
+# steam-audio — replicat der live CT-110 unit (2026-10-14, read-only gelesen)
+[Unit]
+Description=Steam Audio for Remote Play
+After=network.target
+Wants=pipewire-pulse.service
+
+[Service]
+Type=oneshot
+User={{ steam_sunshine_user }}
+Environment="XDG_RUNTIME_DIR=/run/user/{{ steam_sunshine_uid | default(1001) }}"
+Environment="PULSE_RUNTIME_PATH=/run/user/{{ steam_sunshine_uid | default(1001) }}/pulse"
+Environment="PULSE_SERVER=unix:/run/user/{{ steam_sunshine_uid | default(1001) }}/pulse/native"
+# Wait for pipewire-pulse to be reachable, then set up the sink + loopback.
+# Idempotent: unload any existing modules first so re-runs don't duplicate sinks.
+ExecStart=/bin/bash -c '\
+  export XDG_RUNTIME_DIR=/run/user/{{ steam_sunshine_uid | default(1001) }}; \
+  export PULSE_SERVER=unix:/run/user/1001/pulse/native; \
+  for i in $(seq 1 30); do \
+    if pactl info >/dev/null 2>&1; then break; fi; \
+    sleep 1; \
+  done; \
+  pactl info >/dev/null 2>&1 || exit 0; \
+  for mod in $(pactl list short modules 2>/dev/null | grep "module-null-sink.*steam_remote_play" | awk "{print \\$1}"); do pactl unload-module $mod 2>/dev/null; done; \
+  for mod in $(pactl list short modules 2>/dev/null | grep "module-loopback.*steam_remote_play" | awk "{print \\$1}"); do pactl unload-module $mod 2>/dev/null; done; \
+  pactl load-module module-null-sink sink_name=steam_remote_play sink_properties=device.description="Steam Remote Play" rate=48000 channels=2 2>/dev/null; \
+  pactl set-default-sink steam_remote_play 2>/dev/null; \
+  pactl load-module module-loopback source=steam_remote_play.monitor latency_msec=1 2>/dev/null; \
+  true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
