@@ -57,23 +57,23 @@ weckt nicht. Konfliktfrei. smartd weckt dank `-n standby,q` nicht beim
 Pool-Rollen sind als Defaults gesetzt: HDD-2TB=backup (10 min),
 HDD-Big=data (20 min), SSD-Pool=boot (nie).
 
-## NVIDIA GPU stack (roles: `nvidia_driver`, `home_server_gpu`, `steam`)
+## NVIDIA GPU stack (roles: `nvidia_driver`, `steam`)
 
 RTX 3070 Ti on the Proxmox host; consumers on the same version:
 - **Proxmox host (`proxmox_ryzen`)**: full driver via official `.run` installer
   (DKMS-free, self-built module), persistence mode, DRM modeset.
-- **home-server (`ryzen_home_server`)**: steam-headless compose pins
-  `NVIDIA_DRIVER_VERSION` to the global value; container re-installs its
-  userspace on recreation.
 - **steam CT 110 (`steam_host`)**: userspace-only extraction from the SAME
   installer cached on the host (no own kernel module — device-node
   passthrough). Managed via `pct exec` from the host.
 
+**Deprecated:** das steam-headless-compose-Stack auf home-server (frühere Rolle
+`home_server_gpu`) ist außer Betrieb (Marcel, 2026-10-15) und ist aus diesem
+Playbook entfernt; die CT-110-`steam`-Baseline ist der Nachfolger.
+
 **Single source of truth** for the version: `group_vars/all/nvidia_driver.yml`
-→ `nvidia_driver_version`. Bump all three by changing that one variable.
+→ `nvidia_driver_version`. Bump consumers by changing that one variable.
 Current pin: `595.99.02` (latest production branch WITH keylase NvFBC patch —
-595.104.02 is newer but has no NvFBC patch yet, would break steam-headless
-capture).
+595.104.02 is newer but has no NvFBC patch yet).
 
 Dry-run:
 ```bash

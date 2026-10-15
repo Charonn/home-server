@@ -1,4 +1,0 @@
----
-# home_server_gpu defaults
-steam_headless_compose_dir: /opt/steam-headless
-steam_headless_compose_file: "{{ steam_headless_compose_dir }}/compose.yml"

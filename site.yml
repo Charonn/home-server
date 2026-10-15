@@ -10,9 +10,9 @@
     - role: "backup"
       tags:
         - "backup"
-    - role: "home_server_gpu"
-      tags:
-        - "nvidia_driver"
+    # steam-headless compose auf home-server ist DEPRECATED (Marcel, 2026-10-15):
+    # die CT-110 'steam'-Baseline (roles/steam) ist der Nachfolger. Die frühere
+    # home_server_gpu-Rolle + compose.yaml-Verwaltung sind hier entfernt.
 
 - hosts: proxmox_ryzen
   become: yes
