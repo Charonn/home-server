@@ -88,6 +88,8 @@
   loop:
     - src: steam-headless.service.j2
       dest: "{{ steam_units_staging_dir }}/steam-headless.service"
+    - src: steam-audio.service.j2
+      dest: "{{ steam_units_staging_dir }}/steam-audio.service"
     - src: sunshine.service.j2
       dest: "{{ steam_units_staging_dir }}/sunshine.service"
     - src: xorg-virtual.service.j2
@@ -113,6 +115,7 @@
     pct push 110 {{ steam_units_staging_dir }}/{{ item.stage | basename }} {{ item.dest_ct }}
   loop:
     - { stage: steam-headless.service,   dest_ct: /etc/systemd/system/steam-headless.service }
+    - { stage: steam-audio.service,      dest_ct: /etc/systemd/system/steam-audio.service }
     - { stage: sunshine.service,         dest_ct: /etc/systemd/system/sunshine.service }
     - { stage: xorg-virtual.service,     dest_ct: /etc/systemd/system/xorg-virtual.service }
     - { stage: x-compositor.service,     dest_ct: /etc/systemd/system/x-compositor.service }
@@ -157,7 +160,7 @@
   # role without changes skips restart via steam_staging_result.
   ansible.builtin.command: >-
     pct exec 110 -- systemctl enable
-    xorg-virtual.service x-compositor.service sunshine.service steam-headless.service
+    xorg-virtual.service x-compositor.service sunshine.service steam-headless.service steam-audio.service
   when: >-
     not ansible_check_mode
     and not (steam_staging_result | default({})).get('changed', false)
