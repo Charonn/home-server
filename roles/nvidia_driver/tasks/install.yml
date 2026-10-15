@@ -152,7 +152,12 @@
     name: nvidia-persistenced.service
     enabled: "{{ nvidia_driver_persistenced | bool }}"
     state: "{{ omit if ansible_check_mode else 'started' }}"
-  when: nvidia_driver_persistenced | bool
+  # Check-Mode: die Unit existiert erst nach einer echten .run-Installation
+  # (CI-Host hat /var/cache/nvidia nicht) — systemd_service würde im Check-Mode
+  # mit 'Could not find the requested service' fatalen. Erst im Real-Run prüfen.
+  when: >-
+    not ansible_check_mode
+    and nvidia_driver_persistenced | bool
 
 - name: NVIDIA driver — reboot reminder
   ansible.builtin.debug:
