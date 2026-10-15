@@ -31,6 +31,9 @@
       group: "{{ backup_script_group }}"
       mode: "{{ backup_script_mode }}"
       remote_src: true
+    # Check-Mode: .new entsteht erst im Real-Run (template-Task oben schreibt im
+    # Check-Mode nichts) — remote_src-Copy würde mit 'not found' failen, nicht skippen.
+    when: not ansible_check_mode
     notify: backup script updated
 
   - name: backup.sh.new aufgeräumt
