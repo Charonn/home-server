@@ -1,55 +1,68 @@
 ---
-# steam role — NVIDIA userspace overlay install inside CT 110.
+# steam role — NVIDIA userspace overlay install inside CT 110 (native).
 # The CT sees the GPU via LXC device passthrough; it has no kernel module.
-# Install = extract .run userspace + copy nvidia libs + nvidia-xconfig-less
-# (the .run installer is NOT run inside the CT: it would try to build the
-# kernel module; instead we run it with --extract-only and copy the libs).
-#
-# The installer tarball is already verified/cached on the RYZEN HOST by the
-# nvidia_driver role. We reuse it (no second download inside the CT).
+# Install = download the official .run, --extract-only (NEVER build the kernel
+# module inside the CT), copy userspace libs + nvidia-smi, ldconfig.
+# Version pinned by group_vars/all/nvidia_driver.yml (single source of truth).
 
-- name: steam — extract userspace libs from cached .run on ryzen
+- name: steam — download NVIDIA .run (userspace extract)
+  ansible.builtin.get_url:
+    url: "{{ nvidia_driver_base_url }}{{ nvidia_driver_run_name }}"
+    dest: "/var/cache/nvidia/{{ nvidia_driver_run_name }}"
+    mode: '0755'
+    checksum: "sha256:{{ nvidia_driver_run_sha256 }}"
+  become: true
+  when: not ansible_check_mode
+
+- name: steam — extract userspace (no kernel module build)
   ansible.builtin.command: >-
-    bash {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}
+    bash /var/cache/nvidia/{{ nvidia_driver_run_name }}
     --extract-only --target /var/cache/nvidia/extract-{{ nvidia_driver_version }}
   args:
-    creates: /var/cache/nvidia/extract-{{ nvidia_driver_version }}/libnvidia-glcore.so.{{ nvidia_driver_version }}
-  changed_when: true
+    creates: "/var/cache/nvidia/extract-{{ nvidia_driver_version }}/libnvidia-glcore.so.{{ nvidia_driver_version }}"
+  become: true
+  when: not ansible_check_mode
 
-- name: steam — push extractor payload into CT (base64-safe push)
-  # pct push archives = single-file; use tar through stdin instead
-  ansible.builtin.shell: |
-    set -e
-    sudo -n tar -C /var/cache/nvidia/extract-{{ nvidia_driver_version }} \
-      cz usr/lib/x86_64-linux-gnu/libnvidia-glcore.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-ml.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-glvkspirv* \
-         usr/lib/x86_64-linux-gnu/libnvidia-eglcore.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler* \
-         usr/lib/x86_64-linux-gnu/libnvidia-allocator.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-cfg.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-encode.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-fbc.so* \
-         usr/lib/x86_64-linux-gnu/libcuda.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-gtk2* 2>/dev/null \
-      | sudo -n pct exec 110 -- bash -c 'tar -xzf - -C /'
-  changed_when: true
+- name: steam — install userspace libs
+  ansible.builtin.copy:
+    src: "/var/cache/nvidia/extract-{{ nvidia_driver_version }}/{{ item }}"
+    dest: "/usr/lib/x86_64-linux-gnu/"
+    remote_src: true
+    mode: '0755'
+  become: true
+  when: not ansible_check_mode
+  loop:
+    - "libnvidia-glcore.so.{{ nvidia_driver_version }}"
+    - "libnvidia-ml.so.{{ nvidia_driver_version }}"
+    - "libnvidia-glvkspirv.so.{{ nvidia_driver_version }}"
+    - "libnvidia-eglcore.so.{{ nvidia_driver_version }}"
+    - "libnvidia-ptxjitcompiler.so.{{ nvidia_driver_version }}"
+    - "libnvidia-allocator.so.{{ nvidia_driver_version }}"
+    - "libnvidia-cfg.so.{{ nvidia_driver_version }}"
+    - "libnvidia-encode.so.{{ nvidia_driver_version }}"
+    - "libnvidia-fbc.so.{{ nvidia_driver_version }}"
+    - "libcuda.so.1"
+    - "libnvidia-gtk2.so.{{ nvidia_driver_version }}"
 
-- name: steam — push nvidia-smi + helpers binary
-  ansible.builtin.shell: |
-    set -e
-    sudo -n tar -C /var/cache/nvidia/extract-{{ nvidia_driver_version }} \
-      cz bin/nvidia-smi bin/nvidia-debugdump bin/nvidia-persistenced \
-      | sudo -n pct exec 110 -- bash -c 'tar -xzf - -C /'
-  changed_when: true
+- name: steam — install nvidia-smi + persistenced binary
+  ansible.builtin.copy:
+    src: "/var/cache/nvidia/extract-{{ nvidia_driver_version }}/bin/{{ item }}"
+    dest: "/usr/bin/{{ item }}"
+    remote_src: true
+    mode: '0755'
+  become: true
+  when: not ansible_check_mode
+  loop: [nvidia-smi, nvidia-debugdump, nvidia-persistenced]
 
-- name: steam — ldconfig in CT
-  ansible.builtin.command: pct exec 110 -- ldconfig
+- name: steam — ldconfig
+  ansible.builtin.command: ldconfig
+  become: true
   changed_when: true
+  when: not ansible_check_mode
 
-- name: steam — verify CT sees the pinned driver version
-  ansible.builtin.command: >-
-    pct exec 110 -- nvidia-smi --query-gpu=driver_version --format=csv,noheader
+- name: steam — verify pinned driver version
+  ansible.builtin.command: nvidia-smi --query-gpu=driver_version --format=csv,noheader
   register: steam_smi_after
   changed_when: false
-  failed_when: (steam_smi_after.stdout | trim) != nvidia_driver_version
+  failed_when: steam_smi_after.stdout | trim != nvidia_driver_version
+  when: not ansible_check_mode

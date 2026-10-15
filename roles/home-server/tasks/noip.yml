@@ -21,13 +21,21 @@
   command: docker network create traefik
   when: docker_network_ls.stdout == ""
 
+# check-mode: das docker_container-Modul hängt im check-mode-Lauf (>180 s read-timeout
+# am Inspect-Pfad, reproducible im CI, unveränderlich via timeout-Param) — der
+# Container-Zustand lässt sich NICHT sinnvoll im check-mode bestimmen. Der
+# Docker-Inspekt-CLI-Check (check_mode: false discovery) ersetzt die Existenz-Prüfung:
+- name: Check noip container exists (discovery, check-mode safe)
+  shell: docker inspect noip --format '{{ '{{.State.Status}}' }}' 2>/dev/null || true
+  register: noip_inspect
+  check_mode: false
+  changed_when: false
+
 - name: "Run No-IP container"
   docker_container:
     name: "noip"
     image: "coppit/no-ip"
     state: "started"
-    # read-timeout für den Modul-Inspect (docker-py default 60 s): das CT hat 38 Container,
-    # der inspect-Pfad braucht gelegentlich > 60 s — ohne Fix bricht ein check-mode-Lauf hier ab.
     timeout: 180
     restart_policy: "unless-stopped"
     volumes:
@@ -39,4 +47,5 @@
     log_driver: json-file
     networks:
       - name: traefik
+  when: not ansible_check_mode
 

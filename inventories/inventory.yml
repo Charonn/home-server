@@ -6,4 +6,4 @@ ryzen_home_server:
     "home-server.shark-scylla.ts.net"
 steam_host:
   hosts:
-    "ryzen.shark-scylla.ts.net"
+    "steam.shark-scylla.ts.net"

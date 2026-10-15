@@ -1,32 +1,17 @@
 ---
-# steam role — defaults. Compose/units mirror the Live-Bestand of CT 110
-# (see PR body for the inventory source). No credentials here: passwords and
-# keys are vault placeholders resolved from group_vars/steam_host/vault vars.
-
-# Local users on CT 110 (Tailscale SSH + service accounts)
+# steam role — defaults (mirrors live CT 110 stack 2026-10-14).
 steam_users:
   - name: gamer
     uid: 1000
     groups: [sudo, audio, video, render, input, uinput, postdrop]
-    shell: /bin/sh
+    shell: /bin/bash
   - name: opencode
     uid: 1001
     groups: [audio, video, render, input, uinput]
     shell: /bin/bash
-
-# X display the stack runs on
 steam_x_display: ':99'
-
-# Sunshine (Moonlight server) — encoder chosen at runtime by pre-start script
 steam_sunshine_user: opencode
 steam_sunshine_conf_dir: /home/opencode/.config/sunshine
-
-# Where the steam runtime script + unit files live
-steam_bin_dir: /usr/local/bin
-steam_unit_dir: /etc/systemd/system
-
-# NVIDIA userspace version — pinned by the shared group var; consumers:
 steam_nvidia_driver_version: "{{ nvidia_driver_version }}"
-
-# Vulkan ICD used by the steam session
 steam_vk_icd: /usr/share/vulkan/icd.d/nvidia_icd.json
+steam_sunshine_uid: 1001
