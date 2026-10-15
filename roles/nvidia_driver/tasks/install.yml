@@ -99,9 +99,13 @@
     msg: >-
       sha256 of {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}
       does not match the pinned value in role defaults — refusing install.
+  # Nur im Real-Run bewerten: 'nvidia_sha is skipped' ist im Check-Mode der
+  # NORMALFALL (cached=no, CI ohne /var/cache/nvidia) und darf nicht failen.
+  # Der Fail-Pfad greift nur, wenn der Verify im Real-Run lief und rc!=0 ergab.
   when: >-
-    nvidia_sha is skipped or (nvidia_state.cached | default('no') == 'yes'
-    and not (nvidia_sha.rc | default(1) == 0) and not ansible_check_mode)
+    not ansible_check_mode
+    and nvidia_state.cached | default('no') == 'yes'
+    and (nvidia_sha is failed or (nvidia_sha.rc | default(1) != 0))
 
 - name: NVIDIA driver — blacklist nouveau
   ansible.builtin.template:
