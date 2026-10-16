@@ -1,0 +1,16 @@
+[Unit]
+# Managed by ansible (role steam) — verbatim from live CT 110 (2026-10-16).
+Description=Fix GPU device permissions for Sunshine
+After=local-fs.target
+Before=sunshine.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# NOTE: this LXC exposes /dev/dri/card0 + /dev/dri/renderD129 (not card1/renderD128).
+ExecStart=/bin/bash -c 'chmod 666 /dev/dri/card0 /dev/dri/renderD129 2>/dev/null || true'
+ExecStart=/bin/bash -c 'chmod 666 /dev/nvidia0 /dev/nvidiactl /dev/nvidia-modeset /dev/nvidia-uvm /dev/nvidia-uvm-tools 2>/dev/null || true'
+ExecStart=/bin/bash -c 'chmod 666 /dev/nvidia-caps/nvidia-cap1 /dev/nvidia-caps/nvidia-cap2 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target

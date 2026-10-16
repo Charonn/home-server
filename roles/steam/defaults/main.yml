@@ -1,7 +1,8 @@
 ---
-# steam role — defaults. Compose/units mirror the Live-Bestand of CT 110
-# (see PR body for the inventory source). No credentials here: passwords and
-# keys are vault placeholders resolved from group_vars/steam_host/vault vars.
+# steam role — defaults. Everything below replicates the LIVE CT 110 state
+# (survey 2026-10-16, read-only SSH; PR body "Update-5" carries the full map).
+# No credentials here: sunshine credentials live on the CT only, NOT managed
+# by this role (vault-note in group_vars/steam_host/ documents that choice).
 
 # Local users on CT 110 (Tailscale SSH + service accounts)
 steam_users:
@@ -20,6 +21,11 @@ steam_x_display: ':99'
 # Sunshine (Moonlight server) — encoder chosen at runtime by pre-start script
 steam_sunshine_user: opencode
 steam_sunshine_conf_dir: /home/opencode/.config/sunshine
+# upstream release pin (LizardByte GitHub releases, .deb)
+steam_sunshine_version: "2025.924.154138"
+steam_sunshine_deb_base_url: "https://github.com/LizardByte/Sunshine/releases/download/v{{ steam_sunshine_version }}"
+steam_sunshine_deb_name: "sunshine-{{ steam_sunshine_version }}-amd64.deb"
+steam_sunshine_deb_sha256: ""   # optional pin; empty = version check only
 
 # Where the steam runtime script + unit files live
 steam_bin_dir: /usr/local/bin
@@ -30,3 +36,69 @@ steam_nvidia_driver_version: "{{ nvidia_driver_version }}"
 
 # Vulkan ICD used by the steam session
 steam_vk_icd: /usr/share/vulkan/icd.d/nvidia_icd.json
+
+# --- packages (live survey via dpkg; steam-launcher needs the Valve repo) ---
+steam_enable_i386: true                       # steam-libs-i386 need the arch
+steam_apt_steam_repo: true
+steam_apt_steam_gpg_url: "https://repo.steampowered.com/steam/archive/stable/steam.gpg"
+steam_apt_steam_source: >-
+  deb [arch=amd64,i386 signed-by=/usr/share/keyrings/steam.gpg]
+  https://repo.steampowered.com/steam/ stable steam
+
+steam_packages:
+  # steam client + 32-bit runtime libs
+  - steam-launcher
+  - steam-libs-amd64
+  - steam-libs-i386
+  # X server + virtual display
+  - xserver-xorg-core
+  - x11-xserver-utils
+  - xinit
+  - xvfb
+  - xfonts-base
+  - xfonts-100dpi
+  - xfonts-75dpi
+  - xfonts-scalable
+  - xfonts-encodings
+  - xfonts-utils
+  # window manager / compositor / desktop (live: XFCE chrome on Openbox)
+  - openbox
+  - picom
+  - xfdesktop4
+  - xfce4-panel
+  - xfconf
+  # input inspection + remote input
+  - xdotool
+  - wmctrl
+  - xinput
+  - evtest
+  # audio (live hybrid: pipewire daemon for opencode, pulseaudio+utils for gamer/pactl)
+  - pipewire
+  - pipewire-bin
+  - pipewire-pulse
+  - pulseaudio
+  - pulseaudio-utils
+  # VNC + Vulkan tooling
+  - x11vnc
+  - vulkan-tools
+  - mesa-vulkan-drivers
+  - libvulkan1
+
+# --- feature switches (all default ON to match live) ---
+steam_fix_gpu_perms_enable: true        # chmod 666 GPU device nodes (oneshot)
+steam_input_dev_setup_enable: true      # Sunshine uinput -> /dev/input + X restart
+steam_opencode_web_enable: true         # opencode web UI :4096 (binary NOT managed here)
+steam_sunshine_apps_json: true          # Desktop / Low Res Desktop / Big Picture
+
+# Xorg virtual display — live values
+steam_gpu_busid: "PCI:1:0:0"
+steam_virt_mode: "1920x1080_60"
+steam_virt_modeline: "148.50  1920 2008 2052 2200  1080 1084 1089 1125 +hsync +vsync"
+
+# Sunshine CSRF origins (LAN + tailnet, live values; no secrets)
+steam_sunshine_csrf_origins:
+  - "https://192.168.88.201:47990"
+  - "https://192.168.88.193:47990"
+  - "https://100.68.188.59:47990"
+  - "https://0.0.0.0:47990"
+  - "https://[::]:47990"

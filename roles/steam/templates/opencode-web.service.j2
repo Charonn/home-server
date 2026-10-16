@@ -1,0 +1,20 @@
+[Unit]
+# Managed by ansible (role steam) — verbatim from live CT 110 (2026-10-16).
+# The opencode binary itself is NOT managed by this role (agent tooling,
+# self-updating under /home/opencode/.opencode); only the service wrapper.
+Description=OpenCode Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=opencode
+Group=opencode
+WorkingDirectory=/home/opencode
+Environment="HOME=/home/opencode"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/home/opencode/.opencode/bin"
+ExecStart=/home/opencode/.opencode/bin/opencode web --port 4096 --hostname 0.0.0.0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
