@@ -64,7 +64,11 @@
     state: present
     recreate: "{{ 'always' if force_restart | default(false) else 'never' }}"
   register: compose_output
-  async: 30
+  # CI-fail class (runs 38902589672/…): docker-py inspect on the busy CT-102
+  # daemon times out (~60 s) under load; check-mode must not touch the docker
+  # socket at all. Real runs keep an async ceiling (120 s).
+  when: not ansible_check_mode
+  async: 120
   poll: 5
 
 - name: Set compose project src fact
