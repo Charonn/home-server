@@ -10,37 +10,40 @@
 
 - name: steam — extract userspace libs from cached .run on ryzen
   ansible.builtin.command: >-
-    bash {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}
+    sudo -n bash {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}
     --extract-only --target /var/cache/nvidia/extract-{{ nvidia_driver_version }}
   args:
     creates: /var/cache/nvidia/extract-{{ nvidia_driver_version }}/libnvidia-glcore.so.{{ nvidia_driver_version }}
   changed_when: true
 
-- name: steam — push extractor payload into CT (base64-safe push)
-  # pct push archives = single-file; use tar through stdin instead
+- name: steam — push userspace libs into CT (flat .run layout -> CT /usr/lib)
+  # The .run --extract-only tree is FLAT (libnvidia-* at tree root, see the
+  # creates: marker above). Nullglob guards missing patterns (old gtk libs are
+  # gone from 5xx drivers) so tar never fails on an unmatched glob.
   ansible.builtin.shell: |
     set -e
-    sudo -n tar -C /var/cache/nvidia/extract-{{ nvidia_driver_version }} \
-      cz usr/lib/x86_64-linux-gnu/libnvidia-glcore.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-ml.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-glvkspirv* \
-         usr/lib/x86_64-linux-gnu/libnvidia-eglcore.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler* \
-         usr/lib/x86_64-linux-gnu/libnvidia-allocator.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-cfg.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-encode.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-fbc.so* \
-         usr/lib/x86_64-linux-gnu/libcuda.so* \
-         usr/lib/x86_64-linux-gnu/libnvidia-gtk2* 2>/dev/null \
-      | sudo -n pct exec 110 -- bash -c 'tar -xzf - -C /'
+    shopt -s nullglob
+    files=()
+    for name in libnvidia-glcore.so* libnvidia-ml.so* libnvidia-glvkspirv* \
+                libnvidia-eglcore.so* libnvidia-ptxjitcompiler* \
+                libnvidia-allocator.so* libnvidia-cfg.so* \
+                libnvidia-encode.so* libnvidia-fbc.so* \
+                libcuda.so* libnvidia-rtcore.so* libnvidia-pkcs11*; do
+      files+=( "/var/cache/nvidia/extract-{{ nvidia_driver_version }}/$name" )
+    done
+    if [ ${#files[@]} -eq 0 ]; then
+      echo "no userspace libs matched — extraction layout changed?"; exit 2
+    fi
+    tar -czf - -C / "${files[@]#/}" \
+      | sudo -n pct exec 110 -- bash -c 'tar -xzf - -C /usr/lib/x86_64-linux-gnu/'
   changed_when: true
 
-- name: steam — push nvidia-smi + helpers binary
+- name: steam — push nvidia-smi + helpers binary into CT
   ansible.builtin.shell: |
     set -e
     sudo -n tar -C /var/cache/nvidia/extract-{{ nvidia_driver_version }} \
-      cz bin/nvidia-smi bin/nvidia-debugdump bin/nvidia-persistenced \
-      | sudo -n pct exec 110 -- bash -c 'tar -xzf - -C /'
+      -czf - nvidia-smi nvidia-debugdump nvidia-persistenced \
+      | sudo -n pct exec 110 -- bash -c 'tar -xzf - -C /usr/bin/'
   changed_when: true
 
 - name: steam — ldconfig in CT

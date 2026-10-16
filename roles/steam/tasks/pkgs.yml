@@ -1,0 +1,36 @@
+---
+# steam role — packages + apt repos INSIDE CT 110 (via pct exec on ryzen).
+# Source of truth: live CT survey 2026-10-16 (dpkg of CT 110); included from
+# tasks/main.yml with `when: not ansible_check_mode`.
+
+# --- i386 multiarch (steam-libs-i386 need it) ---
+- name: steam-pkgs — enable i386 architecture
+  ansible.builtin.command: pct exec 110 -- dpkg --add-architecture i386
+  changed_when: false   # idempotent; no-op when i386 already registered
+
+# --- Valve steam repo (keyring first, then source list) ---
+- name: steam-pkgs — Valve signing key present
+  ansible.builtin.command: >-
+    pct exec 110 -- bash -c
+    'test -s /usr/share/keyrings/steam.gpg || curl -fsSL {{ steam_apt_steam_gpg_url }} -o /usr/share/keyrings/steam.gpg'
+  when: steam_apt_steam_repo | bool
+  changed_when: true
+
+- name: steam-pkgs — steam stable repo source list (idempotent write)
+  ansible.builtin.command: >-
+    pct exec 110 -- bash -c
+    'grep -qF "repo.steampowered.com/steam/ stable" /etc/apt/sources.list.d/steam-stable.list 2>/dev/null || printf "%s\n" "{{ steam_apt_steam_source }}" > /etc/apt/sources.list.d/steam-stable.list'
+  when: steam_apt_steam_repo | bool
+  changed_when: true
+
+# --- install ---
+- name: steam-pkgs — apt update (new arch/repo)
+  ansible.builtin.command: pct exec 110 -- apt-get update
+  changed_when: true
+
+- name: steam-pkgs — install packages (live CT 110 set)
+  ansible.builtin.command: >-
+    pct exec 110 -- env DEBIAN_FRONTEND=noninteractive
+    apt-get install -y --no-install-recommends {{ steam_packages | join(' ') }}
+  changed_when: true
+  timeout: 1800

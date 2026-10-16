@@ -67,6 +67,11 @@
   when: not ansible_check_mode and item.name in steam_disc.stdout
   changed_when: true
 
+# ---------------------------------------------------------------- packages
+- name: steam — packages + apt repos inside CT 110
+  ansible.builtin.include_tasks: pkgs.yml
+  when: not ansible_check_mode
+
 # ---------------------------------------------------------------- nvidia userspace
 # CT has NO kernel module (nodes are host-passthrough); the userspace stack
 # is a .run-extract overlay. Idempotent re-run: only when version mismatch.
@@ -86,16 +91,22 @@
   changed_when: true
   register: steam_staging_result
   loop:
+    - src: xorg-virtual.service.j2
+      dest: "{{ steam_units_staging_dir }}/xorg-virtual.service"
+    - src: x-compositor.service.j2
+      dest: "{{ steam_units_staging_dir }}/x-compositor.service"
     - src: steam-headless.service.j2
       dest: "{{ steam_units_staging_dir }}/steam-headless.service"
     - src: steam-audio.service.j2
       dest: "{{ steam_units_staging_dir }}/steam-audio.service"
     - src: sunshine.service.j2
       dest: "{{ steam_units_staging_dir }}/sunshine.service"
-    - src: xorg-virtual.service.j2
-      dest: "{{ steam_units_staging_dir }}/xorg-virtual.service"
-    - src: x-compositor.service.j2
-      dest: "{{ steam_units_staging_dir }}/x-compositor.service"
+    - src: fix-gpu-perms.service.j2
+      dest: "{{ steam_units_staging_dir }}/fix-gpu-perms.service"
+    - src: input-dev-setup.service.j2
+      dest: "{{ steam_units_staging_dir }}/input-dev-setup.service"
+    - src: opencode-web.service.j2
+      dest: "{{ steam_units_staging_dir }}/opencode-web.service"
     - src: start-steam-headless.sh.j2
       dest: "{{ steam_units_staging_dir }}/start-steam-headless.sh"
     - src: sunshine-setup.sh.j2
@@ -104,9 +115,15 @@
       dest: "{{ steam_units_staging_dir }}/sunshine-start.sh"
     - src: start-x-compositor.sh.j2
       dest: "{{ steam_units_staging_dir }}/start-x-compositor.sh"
+    - src: setup-input-dev.sh.j2
+      dest: "{{ steam_units_staging_dir }}/setup-input-dev.sh"
+    - src: cuda-check.py.j2
+      dest: "{{ steam_units_staging_dir }}/cuda-check"
     - src: sunshine.conf.j2
       dest: "{{ steam_units_staging_dir }}/sunshine.conf"
       mode: '0600'
+    - src: apps.json.j2
+      dest: "{{ steam_units_staging_dir }}/apps.json"
     - src: 10-nvidia-virtual.conf.j2
       dest: "{{ steam_units_staging_dir }}/10-nvidia-virtual.conf"
 
@@ -114,15 +131,20 @@
   ansible.builtin.command: >
     pct push 110 {{ steam_units_staging_dir }}/{{ item.stage | basename }} {{ item.dest_ct }}
   loop:
+    - { stage: xorg-virtual.service,     dest_ct: /etc/systemd/system/xorg-virtual.service }
+    - { stage: x-compositor.service,     dest_ct: /etc/systemd/system/x-compositor.service }
     - { stage: steam-headless.service,   dest_ct: /etc/systemd/system/steam-headless.service }
     - { stage: steam-audio.service,      dest_ct: /etc/systemd/system/steam-audio.service }
     - { stage: sunshine.service,         dest_ct: /etc/systemd/system/sunshine.service }
-    - { stage: xorg-virtual.service,     dest_ct: /etc/systemd/system/xorg-virtual.service }
-    - { stage: x-compositor.service,     dest_ct: /etc/systemd/system/x-compositor.service }
+    - { stage: fix-gpu-perms.service,    dest_ct: /etc/systemd/system/fix-gpu-perms.service }
+    - { stage: input-dev-setup.service,  dest_ct: /etc/systemd/system/input-dev-setup.service }
+    - { stage: opencode-web.service,     dest_ct: /etc/systemd/system/opencode-web.service }
     - { stage: start-steam-headless.sh,  dest_ct: /usr/local/bin/start-steam-headless.sh }
     - { stage: sunshine-setup.sh,        dest_ct: /usr/local/bin/sunshine-setup.sh }
     - { stage: sunshine-start.sh,        dest_ct: /usr/local/bin/sunshine-start.sh }
     - { stage: start-x-compositor.sh,    dest_ct: /usr/local/bin/start-x-compositor.sh }
+    - { stage: setup-input-dev.sh,       dest_ct: /usr/local/bin/setup-input-dev.sh }
+    - { stage: cuda-check,               dest_ct: /usr/local/bin/cuda-check }
     - { stage: 10-nvidia-virtual.conf,   dest_ct: /etc/X11/xorg.conf.d/10-nvidia-virtual.conf }
   loop_control:
     label: "{{ item.dest_ct }}"
@@ -144,6 +166,21 @@
   changed_when: true
   notify: steam — daemon reload in CT 110
 
+# Verbatim live capture (Desktop / Low Res Desktop / Steam Big Picture incl.
+# the 1920x1080/1200 xrandr prep-cmd). Not secret; pushed plainly.
+- name: steam — sunshine apps.json via pct push (verbatim live capture)
+  ansible.builtin.shell: |
+    set -e
+    sudo -n pct push 110 {{ steam_units_staging_dir }}/apps.json \
+      /home/opencode/.config/sunshine/apps.json
+    sudo -n pct exec 110 -- chown opencode:opencode /home/opencode/.config/sunshine/apps.json
+    rm -f {{ steam_units_staging_dir }}/apps.json
+  when:
+    - not ansible_check_mode
+    - steam_sunshine_apps_json | bool
+  changed_when: true
+  notify: steam — daemon reload in CT 110
+
 - name: steam — make scripts executable
   ansible.builtin.command: >-
     pct exec 110 -- chmod 755
@@ -151,6 +188,8 @@
     /usr/local/bin/sunshine-setup.sh
     /usr/local/bin/sunshine-start.sh
     /usr/local/bin/start-x-compositor.sh
+    /usr/local/bin/setup-input-dev.sh
+    /usr/local/bin/cuda-check
   when: not ansible_check_mode
   changed_when: true
 
@@ -160,7 +199,9 @@
   # role without changes skips restart via steam_staging_result.
   ansible.builtin.command: >-
     pct exec 110 -- systemctl enable
-    xorg-virtual.service x-compositor.service sunshine.service steam-headless.service steam-audio.service
+    xorg-virtual.service input-dev-setup.service x-compositor.service
+    fix-gpu-perms.service sunshine.service steam-headless.service steam-audio.service
+    {{ 'opencode-web.service' if steam_opencode_web_enable | bool else '' }}
   when: >-
     not ansible_check_mode
     and not (steam_staging_result | default({})).get('changed', false)
@@ -176,7 +217,7 @@
 - name: steam — restart stack (only when staged/unit changes happened)
   ansible.builtin.command: >-
     pct exec 110 -- systemctl restart
-    xorg-virtual.service x-compositor.service sunshine.service steam-headless.service
+    xorg-virtual.service input-dev-setup.service x-compositor.service sunshine.service steam-headless.service
   when: >-
     not ansible_check_mode
     and steam_staging_result.changed | default(false)
