@@ -1,0 +1,8 @@
+---
+# nvidia_driver role — tasks/main.yml orchestrates the sequence:
+#   discovery -> install userspace/module -> persistence mode -> summary.
+# Keep it a YAML LIST of includes. install.yml holds the work.
+
+- name: NVIDIA driver — run install sequence
+  ansible.builtin.include_tasks: install.yml
+  tags: [nvidia_driver]

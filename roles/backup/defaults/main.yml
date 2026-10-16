@@ -6,6 +6,8 @@ backup_script_path: /root/backup/backup.sh
 backup_script_owner: root
 backup_script_group: root
 backup_script_mode: "0700"
+backup_env_file: /root/backup/backup.env      # secrets only, mode 0600 — source'd by backup.sh
+backup_env_file_mode: "0600"
 backup_log_dir: /root/backup/logs
 backup_keep_original: true          # bestehendes Script vor Ersetzen nach .bak-<ts> sichern
 

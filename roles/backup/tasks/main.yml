@@ -1,6 +1,27 @@
 ---
-# Backup-Rolle (home-server CT 102). Karte: t_63c81ce9.
+# Backup-Rolle (home-server CT 102 — ryzen_home_server). Karte: t_63c81ce9.
+# SECRET-CONTRACT (fix for CI leak 2026-10-15, runs 38755625627 + 38170084049):
+#   * Secrets NEVER flow through backup.sh (its render may be printed in full —
+#     CI --diff prints renders of changed/new files).
+#   * Secrets live ONLY in backup.env (source'd by the script; mode 0600); its
+#     template task runs with no_log: true → never printed, check-mode or not.
+#   * backup.sh contains ONLY path/tuning params — safe to print in full.
+#   * Env-first ordering is contractual: env file deploys BEFORE the script —
+#     no cron tick ever hits a script that sources a missing env file.
 # Deploy-Sicherheit: bestehendes Script sichern, atomar ersetzen, check-mode-fähig.
+
+  - name: "backup.env erzeugen (SECRETS — no_log: true, niemals im CI-Diff)"
+    ansible.builtin.template:
+      src: backup.env.j2
+      dest: "{{ backup_env_file }}"
+      owner: "{{ backup_script_owner }}"
+      group: "{{ backup_script_group }}"
+      mode: "{{ backup_env_file_mode }}"
+    no_log: true
+    # Check-Mode: der when-Guard skipt den Task GANZ (kein Render, kein Diff-Eintrag).
+    # no_log: true ist die zweite Verteidigungslinie für Real-Runs (maskiert Werte
+    # auch in Fehler-Output). Secrets können nie in CI-Output landen.
+    when: not ansible_check_mode
 
   - name: Sicherung des aktuellen backup.sh (falls vorhanden + noch unmanaged)
     ansible.builtin.copy:
@@ -14,14 +35,14 @@
     failed_when: false
     changed_when: false
 
-  - name: backup.sh.template erzeugen (Secrets aus Vault — nie im Klartext)
+  - name: backup.sh.template erzeugen (KEINE Secrets mehr — diff-safe by contract)
     ansible.builtin.template:
       src: backup.sh.j2
       dest: "{{ backup_script_path }}.new"
       owner: "{{ backup_script_owner }}"
       group: "{{ backup_script_group }}"
       mode: "{{ backup_script_mode }}"
-    no_log: false           # Klartext-Values landen NICHT im template-output; vault maskiert sie
+    no_log: false           # bewusst AN: der Render ist jetzt secret-frei (Contract oben)
 
   - name: backup.sh atomar ersetzen (mv)
     ansible.builtin.copy:
@@ -31,6 +52,9 @@
       group: "{{ backup_script_group }}"
       mode: "{{ backup_script_mode }}"
       remote_src: true
+    # Check-Mode: .new entsteht erst im Real-Run (template-Task oben schreibt im
+    # Check-Mode nichts) — remote_src-Copy würde mit 'not found' failen, nicht skippen.
+    when: not ansible_check_mode
     notify: backup script updated
 
   - name: backup.sh.new aufgeräumt

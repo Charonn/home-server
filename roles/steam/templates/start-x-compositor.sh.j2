@@ -1,0 +1,34 @@
+#!/bin/bash
+# Managed by ansible (role steam) — do not edit
+# Start Openbox WM + Picom compositor + XFCE desktop on X display {{ steam_x_display }}
+# so Steam's OpenGL output is composited onto the root window
+# (without this, VNC/Moonlight captures a black screen).
+# xfdesktop/panel provide a visible desktop when Steam is minimized.
+
+export DISPLAY={{ steam_x_display }}
+export XAUTHORITY=/tmp/.Xauthority
+export HOME=/home/opencode
+export XDG_CURRENT_DESKTOP=XFCE
+export XDG_RUNTIME_DIR=/run/user/1001
+
+# Disable X server screen blanking/screensaver — a blanked screen is what
+# Moonlight streams as a black screen after idle time.
+xset s off >/dev/null 2>&1
+xset s noblank >/dev/null 2>&1
+xset -dpms >/dev/null 2>&1
+
+# Start Openbox window manager in the background
+openbox >/tmp/openbox.log 2>&1 &
+sleep 2
+
+# Start XFCE desktop components (wallpaper + panel + settings daemon)
+xfdesktop --display {{ steam_x_display }} >/tmp/xfdesktop.log 2>&1 &
+sleep 1
+xfce4-panel --display {{ steam_x_display }} >/tmp/xfce4-panel.log 2>&1 &
+sleep 1
+xfsettingsd --display {{ steam_x_display }} >/tmp/xfsettingsd.log 2>&1 &
+
+# Start Picom compositor in the foreground so systemd tracks it.
+# glx backend: GPU-rendered (OpenGL) window content from Steam is read back and
+# composited onto the root window for capture (x11vnc / Sunshine x11grab).
+exec picom --backend glx --no-vsync --no-use-damage --log-level warn

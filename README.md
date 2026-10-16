@@ -56,3 +56,48 @@ weckt nicht. Konfliktfrei. smartd weckt dank `-n standby,q` nicht beim
 
 Pool-Rollen sind als Defaults gesetzt: HDD-2TB=backup (10 min),
 HDD-Big=data (20 min), SSD-Pool=boot (nie).
+
+## NVIDIA GPU stack (roles: `nvidia_driver`, `steam`)
+
+RTX 3070 Ti on the Proxmox host; consumers on the same version:
+- **Proxmox host (`proxmox_ryzen`)**: full driver via official `.run` installer
+  (DKMS-free, self-built module), persistence mode, DRM modeset.
+- **steam CT 110 (`steam_host`)**: userspace-only extraction from the SAME
+  installer cached on the host (no own kernel module — device-node
+  passthrough). Managed via `pct exec` from the host.
+
+**Deprecated:** das steam-headless-compose-Stack auf home-server (frühere Rolle
+`home_server_gpu`) ist außer Betrieb (Marcel, 2026-10-15) und ist aus diesem
+Playbook entfernt; die CT-110-`steam`-Baseline ist der Nachfolger.
+
+**Single source of truth** for the version: `group_vars/all/nvidia_driver.yml`
+→ `nvidia_driver_version`. Bump consumers by changing that one variable.
+Current pin: `595.99.02` (latest production branch WITH keylase NvFBC patch —
+595.104.02 is newer but has no NvFBC patch yet).
+
+Dry-run:
+```bash
+ansible-playbook site.yml --tags nvidia_driver,steam --limit 'proxmox_ryzen,ryzen_home_server,steam_host' --check --diff
+```
+
+Anwenden (host driver upgrade — reboot danach nötig):
+```bash
+ansible-playbook site.yml --tags nvidia_driver --limit proxmox_ryzen
+ansible-playbook site.yml --tags nvidia_driver --limit ryzen_home_server
+ansible-playbook site.yml --tags steam --limit steam_host
+```
+
+Wichtig: nach dem Host-Reboot die steam-CT- und Container-Neuinstallation
+nochmal durchlaufen lassen (`--tags steam,nvidia_driver --limit
+'ryzen_home_server,steam_host'`), damit die Userspace-Stacks gegen das neue
+Kernel-Modul installieren.
+
+## steam CT 110 Baseline (Rolle `steam`, Tag `steam`)
+
+Manage-Vertrag (PR: nvidia driver + steam host): lokale user `gamer` (uid
+1000), `opencode` (1001); systemd-Kette `xorg-virtual → x-compositor →
+sunshine/steam-headless` auf Display `:99`; Sunshine mit Auto-Encoder-
+Wahl (nvenc, wenn CUDA ok; sonst software-Fallback); `xvfb@10.service`
+bleibt MASKIERT (Upstream-dummy-Setup, loopt; siehe Log). Die Rolle
+schreibt über `pct exec`/`pct push` vom Proxmox-Host aus — kein
+`become` im CT (gamer-Sudo braucht PASSWD).
