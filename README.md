@@ -5,7 +5,6 @@ Uses ansible to setup a home server with docker and these containers:
 - nextcloud
 - grafana
 - prometheus
-- no-ip
 - mariadb
 - redis
 - steam-headless (remote gaming: Steam + Sunshine/Moonlight, on `ryzen_home_server` LXC)

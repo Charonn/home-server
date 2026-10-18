@@ -1,8 +1,6 @@
 ---
 - name: "base"
   include_tasks: "base.yml"
-- name: "noip"
-  include_tasks: "noip.yml"
 - name: "mariadb"
   include_tasks: "mariadb.yml"
 - name: "redis"
