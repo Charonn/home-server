@@ -164,8 +164,11 @@
     state: present
     recreate: "{{ 'always' if force_restart | default(false) else 'never' }}"
   register: compose_output
-  async: 30
-  poll: 5
+  # First run must pull several large images (immich-server,
+  # machine-learning, ...) - 30s was not enough and failed with
+  # "Timeout exceeded". Allow up to 1h; cached runs return in seconds.
+  async: 3600
+  poll: 15
 
 - name: Set compose project src fact
   ansible.builtin.set_fact:
