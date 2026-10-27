@@ -10,7 +10,4 @@
     ansible.builtin.systemd_service:
       name: node_exporter
       state: restarted
-  - name: apply tmpfiles
-    ansible.builtin.command: systemd-tmpfiles --create
-    changed_when: true
 

@@ -1,6 +1,13 @@
 ---
 # Idle-Power-Reduktion (from Karte t_15bbb646 ansible_draft, converted to role)
 # Playbook-Konvertierung: hosts: pve -> role auf proxmox_ryzen (siehe site.yml); tags idle_power
+# 2026-10-27 fixup.md Phase 4: der frühere globale zfs_txg_timeout-Hack
+# (tmpfiles.d, txg=1800 für ALLE Pools) traf auch SSD-Pool (LXC-Rootfs):
+# Txg-Commits alle 30 min blockierten docker/FS-Ops in jedem LXC
+# (hung-task in zfs_freesp/zfs_setattr). Auf dem Host revertiert
+# (txg=5, Modul-Param in /etc/modprobe.d/zfs.conf auf 5, tmpfiles entfernt).
+# Diese Rolle schreibt das GLOBALE Modul-Param nie wieder — nur
+# Self-Healing-Aufräumtask + per-Pool-Batching (erst ab OpenZFS 2.3).
 
   # ===================================================================
   # 0) Tools + Discovery
@@ -180,72 +187,66 @@
     when: idle_power_governor_apply | bool and not ansible_check_mode
 
   # ===================================================================
-  # 2) zfs_txg_timeout (MODUL-Parameter, global): 5 s -> 1800 s.
-  #   storage.cfg referenzert alle 3 Pools mit rootdir,images -> Gate schließt;
-  #    idle_power_txg_force: true = bewusst erzwingen (Marcel-OK 2026-10-11).
-  #    Crash-Fenster 30 min, Parkquote ~67% (txg > spin_timer 600s = 10 min).
+  # 2) ZFS TXG — Revert des globalen Hacks (fixup.md Phase 4, 2026-10-27)
+  #   a) Self-Healing: vom früheren Ansatz hinterlassene tmpfiles-Dateien
+  #      entfernen (inkl. der auf dem Host nach dem Revert manuell zu
+  #      .disabled umbenannten Kopie). Danach: `ls /etc/tmpfiles.d/ | grep
+  #      txg` ergibt nichts mehr.
+  #   b) Per-Pool-Batching NUR für reine HDD-Pools und NUR wenn OpenZFS
+  #      ≥ 2.3 die Property txg_timeout pro Pool kennt (zpool set —
+  #      boot-persistent im Pool-MOS, kein boot-Mechanik-Hack nötig).
+  #      Mischpools (SSD-Member) werden bewusst AUSGESCHLOSSEN: deren
+  #      Txg-Delay würde wieder Docker/LXC-FS-Ops anhalten. Auf OZ 2.2.x
+  #      (PVE 8) scheitert die Property-Probe -> SKIP, nichts ändert sich;
+  #      das globale Modul-Param (5 s, /etc/modprobe.d/zfs.conf) wird
+  #      von dieser Rolle nicht mehr angerührt.
   # ===================================================================
-  - name: Lese aktuellen zfs_txg_timeout
-    ansible.builtin.slurp:
-      src: /sys/module/zfs/parameters/zfs_txg_timeout
-    register: idle_power_txg_before
-    when: idle_power_txg_enable | bool
+  - name: Entferne Legacy tmpfiles-Dateien des globalen txg-Hacks
+    ansible.builtin.file:
+      path: "{{ it }}"
+      state: absent
+    loop:
+      - /etc/tmpfiles.d/zfs-txg-idle.conf
+      - /etc/tmpfiles.d/zfs-txg-idle.conf.disabled
+    loop_control:
+      loop_var: it
+      label: "{{ it }}"
 
-  - name: Lese /etc/pve/storage.cfg
-    ansible.builtin.slurp:
-      src: /etc/pve/storage.cfg
-    register: idle_power_storage_cfg_raw
-    when: idle_power_txg_enable | bool
-    failed_when: false
-
-  - name: Bestimme zfspool-Refs in storage.cfg
+  - name: Ermittle reine HDD-Pools (mindestens 1 rotierender Member, KEIN SSD-Member)
     ansible.builtin.set_fact:
-      idle_power_storage_pools: >-
-        {{ (idle_power_storage_cfg_raw.content | default('') | b64decode | default('', true))
-           | regex_findall('zfspool:\s*\S+\s*\n\s*pool\s+([^\s]+)') | list }}
-    when: idle_power_txg_enable | bool
+      idle_power_txg_pools_eligible: >-
+        {{ idle_power_hdds | map(attribute='pool') | unique | list
+           | difference(idle_power_ssd_members | map(attribute='pool') | unique | list) }}
 
-  - name: Pool-Overlap-Check (SLOG-/VM-Risiko)
-    ansible.builtin.set_fact:
-      idle_power_txg_pool_overlap: >-
-        {{ idle_power_storage_pools | default([]) | intersect(idle_power_pools) | list }}
-    when: idle_power_txg_enable | bool
-
-  - name: TXG-Timeout jetzt setzen (sysfs, sofort wirksam)
-    # sysfs erlaubt keine (temporary) NEUEN Dateien -> ansible copy bricht mit EPERM;
-    # sysctl kennt ZFS-Parameter nicht (/proc/sys/zfs existiert nicht — live verifiziert).
-    # Root-schreibt die bestehende sysfs-Datei direkt per redirect (become: yes aus site.yml).
+  - name: Setze per-Pool txg_timeout für HDD-Pools (zpool-Property, nur OpenZFS ≥ 2.3)
+    # Kein globales Modul-Param mehr: zpool set txg_timeout legt den Wert als
+    # Pool-Property ab (MOS) und überlebt Reboots ohne tmpfiles/modprobe-Zusatz.
     ansible.builtin.shell: |
-      echo {{ idle_power_txg_timeout }} > /sys/module/zfs/parameters/zfs_txg_timeout
-      cat /sys/module/zfs/parameters/zfs_txg_timeout
+      set -u
+      want="{{ idle_power_txg_pools_timeout | int }}"
+      {% for p in idle_power_txg_pools_eligible %}
+      cur="$(zpool get -H -o value txg_timeout {{ p | quote }} 2>/dev/null)"
+      if [ -z "$cur" ]; then
+        echo "SKIP|{{ p }}|txg_timeout-Property nicht unterstuetzt (OpenZFS < 2.3) — keine Aenderung"
+      elif [ "$cur" != "$want" ]; then
+        if zpool set txg_timeout="$want" {{ p | quote }} 2>/dev/null; then
+          echo "SET|{{ p }}|txg_timeout=$(zpool get -H -o value txg_timeout {{ p | quote }})"
+        else
+          echo "FAIL|{{ p }}|zpool set fehlgeschlagen"
+        fi
+      else
+        echo "OK|{{ p }}|txg_timeout=$cur"
+      fi
+      {% endfor %}
+    args:
+      executable: /bin/bash
+    register: idle_power_txg_pools_set
+    changed_when: "'SET|' in idle_power_txg_pools_set.stdout"
+    failed_when: "'FAIL|' in idle_power_txg_pools_set.stdout"
     when: >-
-      idle_power_txg_enable | bool
-      and (idle_power_txg_timeout | int) > 0
-      and (idle_power_txg_pool_overlap | length == 0 or idle_power_txg_force | bool)
-    changed_when: true
-
-  - name: TXG-Timeout boot-persistent (tmpfiles.d)
-    ansible.builtin.template:
-      src: zfs-txg-idle.conf.j2
-      dest: /etc/tmpfiles.d/zfs-txg-idle.conf
-      mode: '0644'
-    when: >-
-      idle_power_txg_enable | bool
-      and (idle_power_txg_timeout | int) > 0
-      and (idle_power_txg_pool_overlap | length == 0 or idle_power_txg_force | bool)
-    notify: apply tmpfiles
-
-  - name: TXG-Warnung wenn Gate schliesst (fuer Marcel Review)
-    ansible.builtin.debug:
-      msg: >-
-        zfs_txg_timeout NICHT geaendert: storage.cfg referenziert
-        {{ idle_power_txg_pool_overlap | join(', ') }} mit images/rootdir.
-        Wenn akzeptabel (Crash -> Daten bis {{ idle_power_txg_timeout }} s alt),
-        setze idle_power_txg_force: true.
-    when: >-
-      idle_power_txg_enable | bool
-      and idle_power_txg_pool_overlap | length > 0
-      and not (idle_power_txg_force | bool)
+      idle_power_txg_pools_enable | bool
+      and idle_power_txg_pools_eligible | default([]) | length > 0
+      and not ansible_check_mode
 
   # ===================================================================
   # 3) HDD Spin-Down (hdparm -B/-S), NUR rotierende Pool-Members.
@@ -339,8 +340,7 @@
         == Idle-Power-Zusammenfassung ==
         Governor (vorher):      {{ idle_power_gov_before.stdout | trim }}
         tuned (aktiv?):         {{ idle_power_tuned.stdout | default('n/a') | trim }}
-        TXG (vorher):           {{ (idle_power_txg_before.content | b64decode | trim) if (idle_power_txg_enable | bool) else 'n/a' }}
-        TXG-Overlap storage.cfg:{{ (idle_power_txg_pool_overlap | join(',')) if (idle_power_txg_enable | bool) else 'n/a' }}
+        TXG per-Pool:           {{ idle_power_txg_pools_set.stdout | default('n/a — übersprungen (OZ < 2.3 oder keine HDD-Pools)') | trim | replace('\n', ' | ') }}
         Spin-Zustaende (hdparm -C): {{ idle_power_spin_states.stdout | default('k.A.') | trim }}
 
   - name: Rollback-Referenz (Kurzfassung)
@@ -349,8 +349,10 @@
         Governor    : rm /etc/systemd/system/pve-cpu-governor.service
                       && systemctl daemon-reload
                       && for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$g"; done
-        TXG         : rm /etc/tmpfiles.d/zfs-txg-idle.conf
-                      && echo 5 > /sys/module/zfs/parameters/zfs_txg_timeout
+        TXG (per-Pool):         zpool set txg_timeout=5 <HDD-Pool>
+                                (Globales Modul-Param/sysfs NIE wieder anfassen)
+        TXG-Legacy-Dateien:     entfernt sich beim nächsten Lauf selbst
+                                (/etc/tmpfiles.d/zfs-txg-idle.conf*)
         Spin-Down   : rm /etc/systemd/system/idle-spin.service
                       && systemctl daemon-reload
                       && hdparm -q -B 255 -S 0 <HDD-devs>
