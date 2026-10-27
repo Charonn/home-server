@@ -21,7 +21,12 @@
       owner: "{{ backup_script_owner }}"
       group: "{{ backup_script_group }}"
       mode: "{{ backup_script_mode }}"
-    no_log: false           # Klartext-Values landen NICHT im template-output; vault maskiert sie
+    # no_log: true ist PFLICHT hier: das Template injiziert die Vault-Secrets
+    # INLINE in das gerenderte Script — der --diff des CI (public Logs, PR #13,
+    # 2026-10-27) hätte sie sonst wiederholt im Klartext gedruckt (ist einmal
+    # passiert; Rotation siehe PR-Beschreibung). no_log verdeckt Diff UND
+    # Fehler der Task — der Render selbst ist seit der Einführung grün.
+    no_log: true
 
   - name: backup.sh atomar ersetzen (mv)
     ansible.builtin.copy:
@@ -31,6 +36,10 @@
       group: "{{ backup_script_group }}"
       mode: "{{ backup_script_mode }}"
       remote_src: true
+    # Check-Mode-Compat (CI-Klasse 5): der Produzent (Template-Task) schreibt
+    # im Check-Mode NICHT -> .new existiert dort nicht und copy remote_src
+    # bricht mit "Source ... not found". Im Check-Mode skippen.
+    when: not ansible_check_mode
     notify: backup script updated
 
   - name: backup.sh.new aufgeräumt
