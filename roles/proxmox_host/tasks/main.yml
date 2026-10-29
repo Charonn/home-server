@@ -251,17 +251,32 @@
       changed_when: false
 
     - name: Check effective nvidia-drm modeset on the running kernel
-      ansible.builtin.command: cat /sys/module/nvidia_drm/parameters/modeset
+      # nvidia_drm only loads when an NVIDIA GPU is present. The card can be
+      # gone (1050 Ti removed): the sysfs file does not exist and a plain
+      # `cat` fails the whole play. Instead print a marker so downstream
+      # tasks can key on "module not loaded".
+      ansible.builtin.shell: |
+        if [ -f /sys/module/nvidia_drm/parameters/modeset ]; then
+          cat /sys/module/nvidia_drm/parameters/modeset
+        else
+          echo "module-not-loaded"
+        fi
       register: nvidia_modeset_state
       changed_when: false
       check_mode: false  # read-only, safe in check mode
 
+    - name: Set fact whether nvidia-drm modeset is actually active
+      ansible.builtin.set_fact:
+        nvidia_modeset_active: "{{ (nvidia_modeset_state.stdout | trim) == '1' }}"
+
     - name: Reboot the Proxmox host to activate nvidia-drm modeset (opt-in)
       # DANGER: restarts the whole Proxmox host - all guests bounce.
+      # Never triggered without a loaded nvidia_drm (nothing to activate).
       ansible.builtin.reboot:
         reboot_timeout: 600
       when:
         - proxmox_host_reboot_on_config_change | default(false)
+        - nvidia_modeset_active
         - nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1'
 
     - name: Warn that the Proxmox host still needs a reboot for nvidia-drm modeset
@@ -272,4 +287,5 @@
           -e proxmox_host_reboot_on_config_change=true to reboot automatically.
       when:
         - not (proxmox_host_reboot_on_config_change | default(false))
+        - nvidia_modeset_active
         - nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1'
