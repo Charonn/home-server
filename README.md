@@ -7,12 +7,53 @@ Uses ansible to setup a home server with docker and these containers:
 - prometheus
 - mariadb
 - redis
+- dawarich (self-hosted location history, with its own PostGIS + Redis)
 - steam-headless (remote gaming: Steam + Sunshine/Moonlight, on `ryzen_home_server` LXC)
 
 ## Apply to home-server
 ```bash
 ansible-playbook site.yml --private-key=~/.ssh/* --tags home-server --diff --limit proxmox_home_server
 ```
+
+## Dawarich (self-hosted Location History)
+
+Deploys [Freika/dawarich](https://github.com/Freika/dawarich) (Google Timeline
+replacement: location tracking + map) to the home server as a
+`roles/home-server` task (`--tags dawarich`, `ryzen_home_server`), fully
+self-contained in `/opt/dawarich`:
+
+- `dawarich` (`freikin/dawarich:1.19.0`, pinned) — Rails web app + embedded
+  Sidekiq (one container, upstream default since 1.x)
+- `dawarich_db` (`postgis/postgis:17-3.5-alpine`) — Dawarich **requires
+  PostGIS**, so it does NOT use the shared `postgres` stack
+- `dawarich_redis` (`redis:8-alpine`) — dedicated instance, no queue
+  contamination with nextcloud/immich on the shared redis
+- `ts-dawarich` — Tailscale sidecar (same pattern as paperless/beszel/pgadmin):
+  shares the app network namespace, serves the UI at
+  `https://dawarich.shark-scylla.ts.net` (magicDNS, auto certs) and exposes
+  tracking endpoints (`/api/v1/...`) for the Dawarich Android/iOS app or
+  OwnTracks/Overland to that URL. HTTP port 3000 is also published on the box.
+
+Apply:
+```bash
+ansible-playbook site.yml --tags dawarich --diff --limit ryzen_home_server
+```
+
+First login (upstream default, change immediately):
+`demo@dawarich.app` / `safepassword`.
+
+Secrets (vault only, `group_vars/ryzen_home_server/dawarich_vault.yml`,
+read with `.vault_pass`):
+- `dawarich_secret_key_base_vault` — Rails SECRET_KEY_BASE (`openssl rand -hex 64`)
+- `dawarich_db_password_vault` — bundled PostGIS superuser password
+
+Tunables (plain, `group_vars/ryzen_home_server/all.yml`): `dawarich_version`
+(bump deliberately, releases can be breaking), `dawarich_host_path`,
+`dawarich_public_port`, `dawarich_application_hosts`, `dawarich_timezone`.
+
+Backup gap (deliberate, review point): the daily `backup.sh` Borg run dumps
+MariaDB only — the Dawarich PostGIS DB in `/opt/dawarich/db` is **not** in the
+backup chain yet. Add a `pg_dump` step there before relying on the data.
 
 ## Steam Headless (remote gaming)
 

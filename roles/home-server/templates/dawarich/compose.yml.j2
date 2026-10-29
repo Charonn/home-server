@@ -1,0 +1,137 @@
+services:
+  ts-dawarich:
+    image: tailscale/tailscale:v1.96.5
+    container_name: ts-dawarich
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: "{{ tailscale_auth_key }}"
+      TS_EXTRA_ARGS: "--hostname=dawarich --advertise-tags=tag:container"
+      TS_SERVE_CONFIG: "/config/config.json"
+      TS_STATE_DIR: "/var/lib/tailscale"
+      TS_USERSPACE: "true"
+    volumes:
+      - "{{ dawarich_host_path }}/tailscale/state:/var/lib/tailscale"
+      - "{{ dawarich_host_path }}/tailscale/config:/config"
+    network_mode: service:dawarich
+
+  dawarich:
+    image: freikin/dawarich:{{ dawarich_version }}
+    container_name: dawarich
+    restart: unless-stopped
+    # Upstream compose runs stdin/tty for interactive debugging (`docker attach`).
+    stdin_open: true
+    tty: true
+    entrypoint: web-entrypoint.sh
+    command: ['bin/rails', 'server', '-p', '3000', '-b', '::']
+    stop_grace_period: 60s
+    ports:
+      - "{{ dawarich_public_port }}:3000"
+    networks:
+      - dawarich
+    volumes:
+      - "{{ dawarich_host_path }}/public:/var/app/public"
+      - "{{ dawarich_host_path }}/watched:/var/app/tmp/imports/watched"
+      - "{{ dawarich_host_path }}/storage:/var/app/storage"
+      # DB data dir read access from the app container (built-in backup/restore tooling,
+      # see https://dawarich.app/docs/tutorials/backup-and-restore)
+      - "{{ dawarich_host_path }}/db:/dawarich_db_data"
+    environment:
+      RAILS_ENV: production
+      REDIS_URL: redis://dawarich_redis:6379
+      DATABASE_HOST: dawarich_db
+      DATABASE_PORT: 5432
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: "{{ dawarich_db_password }}"
+      DATABASE_NAME: dawarich
+      APPLICATION_HOSTS: "{{ dawarich_application_hosts }}"
+      APPLICATION_PROTOCOL: https
+      TIME_ZONE: "{{ dawarich_timezone }}"
+      SECRET_KEY_BASE: "{{ dawarich_secret_key_base }}"
+      RAILS_LOG_TO_STDOUT: true
+      SELF_HOSTED: true
+      STORE_GEODATA: true
+      # Single-process mode: Puma + Sidekiq embedded -> no separate worker container
+      # (upstream default for Compose since 1.x).
+      SIDEKIQ_EMBEDDED: 'true'
+      WEB_CONCURRENCY: '0'
+      BACKGROUND_PROCESSING_CONCURRENCY: 2
+    labels:
+      - traefik.enable=false
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO - http://127.0.0.1:3000/api/v1/health | grep -q '\"status\"\\s*:\\s*\"ok\"'"]
+      interval: 10s
+      retries: 30
+      start_period: 30s
+      timeout: 10s
+    depends_on:
+      dawarich_db:
+        condition: service_healthy
+        restart: true
+      dawarich_redis:
+        condition: service_healthy
+        restart: true
+    deploy:
+      resources:
+        limits:
+          cpus: 1.00   # upstream defaults (APP_CPU_LIMIT / APP_MEMORY_LIMIT)
+          memory: 4G
+    logging:
+      driver: json-file
+      options:
+        max-size: 12m
+        max-file: "5"
+
+  dawarich_db:
+    # Dawarich requires PostGIS (not a plain postgres image).
+    image: postgis/postgis:17-3.5-alpine
+    container_name: dawarich_db
+    restart: unless-stopped
+    shm_size: 1G
+    volumes:
+      - "{{ dawarich_host_path }}/db:/var/lib/postgresql/data"
+      - "{{ dawarich_host_path }}/shared:/var/shared"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "{{ dawarich_db_password }}"
+      POSTGRES_DB: dawarich
+    networks:
+      - dawarich
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dawarich"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 12m
+        max-file: "5"
+
+  dawarich_redis:
+    image: redis:8-alpine
+    container_name: dawarich_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save 900 1
+      --save 300 10
+      --appendonly no
+    volumes:
+      - "{{ dawarich_host_path }}/redis:/data"
+    networks:
+      - dawarich
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 12m
+        max-file: "5"
+
+networks:
+  dawarich:
