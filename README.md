@@ -7,7 +7,7 @@ Uses ansible to setup a home server with docker and these containers:
 - prometheus
 - mariadb
 - redis
-- dawarich (self-hosted location history, with its own PostGIS + Redis)
+- dawarich (self-hosted location history, with its own PostGIS)
 - steam-headless (remote gaming: Steam + Sunshine/Moonlight, on `ryzen_home_server` LXC)
 
 ## Apply to home-server
@@ -19,15 +19,17 @@ ansible-playbook site.yml --private-key=~/.ssh/* --tags home-server --diff --lim
 
 Deploys [Freika/dawarich](https://github.com/Freika/dawarich) (Google Timeline
 replacement: location tracking + map) to the home server as a
-`roles/home-server` task (`--tags dawarich`, `ryzen_home_server`), fully
-self-contained in `/opt/dawarich`:
+`roles/home-server` task (`--tags dawarich`, `ryzen_home_server`), sharing the
+existing redis, otherwise self-contained in `/opt/dawarich`:
 
 - `dawarich` (`freikin/dawarich:1.19.0`, pinned) — Rails web app + embedded
   Sidekiq (one container, upstream default since 1.x)
 - `dawarich_db` (`postgis/postgis:17-3.5-alpine`) — Dawarich **requires
   PostGIS**, so it does NOT use the shared `postgres` stack
-- `dawarich_redis` (`redis:8-alpine`) — dedicated instance, no queue
-  contamination with nextcloud/immich on the shared redis
+- Redis: **reuses the shared `redis` container** (`db` network, requirepass).
+  Dawarich selects its own DBs (`RAILS_CACHE_DB=4`, `RAILS_JOB_QUEUE_DB=5`,
+  `RAILS_WS_DB=6`) — defaults 0/1/2 would collide with nextcloud (0) and
+  paperless+immich (both on 1).
 - `ts-dawarich` — Tailscale sidecar (same pattern as paperless/beszel/pgadmin):
   shares the app network namespace, serves the UI at
   `https://dawarich.shark-scylla.ts.net` (magicDNS, auto certs) and exposes

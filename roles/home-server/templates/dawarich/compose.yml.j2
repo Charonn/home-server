@@ -28,6 +28,7 @@ services:
       - "{{ dawarich_public_port }}:3000"
     networks:
       - dawarich
+      - db
     volumes:
       - "{{ dawarich_host_path }}/public:/var/app/public"
       - "{{ dawarich_host_path }}/watched:/var/app/tmp/imports/watched"
@@ -37,7 +38,14 @@ services:
       - "{{ dawarich_host_path }}/db:/dawarich_db_data"
     environment:
       RAILS_ENV: production
-      REDIS_URL: redis://dawarich_redis:6379
+      # Shared redis instance (see roles/home-server/tasks/redis.yml, network
+      # `db`, requirepass) - Dawarich picks its DBs via these three vars:
+      # shared-redis allocation today: 0=nextcloud, 1=paperless+immich,
+      # 4/5/6=dawarich (defaults would be 0/1/2 and collide).
+      REDIS_URL: redis://:{{ redis_password }}@redis:6379
+      RAILS_CACHE_DB: '4'
+      RAILS_JOB_QUEUE_DB: '5'
+      RAILS_WS_DB: '6'
       DATABASE_HOST: dawarich_db
       DATABASE_PORT: 5432
       DATABASE_USERNAME: postgres
@@ -65,9 +73,6 @@ services:
       timeout: 10s
     depends_on:
       dawarich_db:
-        condition: service_healthy
-        restart: true
-      dawarich_redis:
         condition: service_healthy
         restart: true
     deploy:
@@ -108,30 +113,7 @@ services:
         max-size: 12m
         max-file: "5"
 
-  dawarich_redis:
-    image: redis:8-alpine
-    container_name: dawarich_redis
-    restart: unless-stopped
-    command: >
-      redis-server
-      --save 900 1
-      --save 300 10
-      --appendonly no
-    volumes:
-      - "{{ dawarich_host_path }}/redis:/data"
-    networks:
-      - dawarich
-    healthcheck:
-      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
-      interval: 10s
-      retries: 5
-      start_period: 30s
-      timeout: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: 12m
-        max-file: "5"
-
 networks:
   dawarich:
+  db:
+    external: true   # shared redis (container `redis`) lives here

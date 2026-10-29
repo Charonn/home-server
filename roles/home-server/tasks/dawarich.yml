@@ -13,8 +13,8 @@
     - "{{ dawarich_host_path }}/shared"
     - "{{ dawarich_host_path }}/tailscale/config"
 
-# postgres (uid 999) and redis:8-alpine (uid 999) both write into these
-- name: Create directories for dawarich database and redis volumes
+# postgres (uid 999) writes into the db volume
+- name: Create directories for dawarich database volume
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -23,7 +23,6 @@
     mode: '0700'
   loop:
     - "{{ dawarich_host_path }}/db"
-    - "{{ dawarich_host_path }}/redis"
 
 - name: Create directories for dawarich tailscale state
   ansible.builtin.file:
