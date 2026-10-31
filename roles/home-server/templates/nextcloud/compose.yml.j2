@@ -1,7 +1,7 @@
 ---
 services:
   ts-nextcloud:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale:v1.96.5
     container_name: ts-nextcloud
     restart: unless-stopped
     environment:
@@ -32,7 +32,7 @@ services:
       - traefik.enable=true
       - traefik.port=80
       - traefik.docker.network=traefik
-      - traefik.http.routers.cloud.rule=Host(`${host}`) && PathPrefix(`/`)
+      - traefik.http.routers.cloud.rule=Host(`{{ host }}`) && PathPrefix(`/`)
       - traefik.http.routers.cloud.tls.certresolver=letsencrypt
       - traefik.http.routers.cloud.middlewares=cloud@docker,cloud-dav@docker,redirect-to-https@docker
       - traefik.http.middlewares.cloud.headers.customFrameOptionsValue=SAMEORIGIN

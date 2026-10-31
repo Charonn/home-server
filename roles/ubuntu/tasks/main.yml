@@ -1,8 +1,12 @@
 ---
-- name: Add Fish shell PPA
-  apt_repository:
-    repo: "ppa:fish-shell/release-3"
-    state: present
+- name: Add Fish shell PPA (deb822)
+  deb822_repository:
+    name: fish-shell-release-3
+    types: deb
+    uris: "https://ppa.launchpadcontent.net/fish-shell/release-3/ubuntu"
+    suites: "{{ ansible_distribution_release }}"
+    components: main
+    signed_by: "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x88421E703EDC7AF54967DED473C9FCC9E2BB48DA"
 
 - name: Ensure the apt keyrings directory exists
   file:

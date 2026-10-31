@@ -52,7 +52,7 @@
     login_password: "{{ postgres_password }}"
     login_host: "localhost"
     login_port: "5432"
-    database: "{{ immich_db_name }}"
+    login_db: "{{ immich_db_name }}"
     roles: "{{ immich_db_user }}"
     privs: "ALL"
     type: "database"
@@ -66,7 +66,7 @@
     login_host: "localhost"
     login_port: "5432"
     name: "vector"
-    db: "{{ immich_db_name }}"
+    login_db: "{{ immich_db_name }}"
     state: present
 
 - name: Grant immich user read access to pg_authid (for backups)
@@ -76,7 +76,7 @@
     login_password: "{{ postgres_password }}"
     login_host: "localhost"
     login_port: "5432"
-    database: "postgres"  # System tables are in the postgres database
+    login_db: "postgres"  # System tables are in the postgres database
     roles: "{{ immich_db_user }}"
     privs: "SELECT"
     objs: "pg_authid"
@@ -91,7 +91,7 @@
     login_password: "{{ postgres_password }}"
     login_host: "localhost"
     login_port: "5432"
-    database: "postgres"
+    login_db: "postgres"
     roles: "{{ immich_db_user }}"
     privs: "SELECT"
     objs: "ALL_IN_SCHEMA"
@@ -103,7 +103,7 @@
   tags: "immich"
   community.postgresql.postgresql_ext:
     name: "earthdistance"
-    db: "{{ immich_db_name }}"
+    login_db: "{{ immich_db_name }}"
     login_user: "postgres"
     login_password: "{{ postgres_password }}"
     login_host: "localhost"
@@ -115,7 +115,7 @@
   tags: "immich"
   community.postgresql.postgresql_ext:
     name: "cube"
-    db: "{{ immich_db_name }}"
+    login_db: "{{ immich_db_name }}"
     login_user: "postgres"
     login_password: "{{ postgres_password }}"
     login_host: "localhost"

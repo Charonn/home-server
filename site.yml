@@ -1,9 +1,29 @@
 ---
 
-- hosts: ryzen_home_server
+- hosts: proxmox_ryzen
   become: yes
   roles:
+    - role: proxmox_host
+    - role: idle_power
+      tags:
+        - "idle_power"
+
+- hosts: ryzen_home_server
+  become: yes
+  # docker-py Read-Timeout für ALLE docker_container-Tasks (mariadb, redis,
+  # internet-monitoring, pihole): das home-server-CT rennt ~38 Container,
+  # API-version-fetch + inspect brauchen dort gern >60 s (docker-py default).
+  # 180 s wie im 'Run No-IP container'-Fix — zentral statt pro Task.
+  # (module_defaults als Var in group_vars wird NICHT angewendet, nur als Play-Keyword.)
+  module_defaults:
+    community.docker.docker_container:
+      timeout: 180
+    docker_container:
+      timeout: 180
+  roles:
     - role: common
+    - role: geerlingguy.docker
+    - role: docker
     - role: "home-server"
       tags:
         - "home-server"

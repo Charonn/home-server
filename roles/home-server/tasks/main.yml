@@ -1,15 +1,6 @@
 ---
 - name: "base"
   include_tasks: "base.yml"
-# - name: "crowdsec"
-#   include_tasks: "crowdsec.yml"
-# - name: "tailscale"
-#   include_tasks: "tailscale.yml"
-#   tags: "tailscale"
-- name: "noip"
-  include_tasks: "noip.yml"
-# - name: "traefik"
-#   include_tasks: "traefik.yml"
 - name: "mariadb"
   include_tasks: "mariadb.yml"
 - name: "redis"
@@ -30,5 +21,19 @@
   include_tasks: "immich.yml"
   tags:
     - "immich"
-- name: "beszel"
-  include_tasks: "beszel.yml"
+# - name: "beszel"
+#   include_tasks: "beszel.yml"
+# - name: "steam-headless"
+#   include_tasks:
+#     file: "steam-headless.yml"
+#     # dynamic includes do not propagate tags by default; apply: fixes that
+#     # so this service can be run standalone with --tags steam-headless
+#     apply:
+#       tags:
+#         - "home-server"
+#         - "steam-headless"
+  # tags:
+  #   - "steam-headless"
+  # # Only the ryzen_home_server host defines steam_headless_host_path,
+  # # so this service is not deployed anywhere else.
+  # when: steam_headless_host_path is defined

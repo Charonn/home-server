@@ -4,10 +4,14 @@
 idle_power_governor: schedutil
 idle_power_governor_apply: true
 
-# ZFS TXG (MODUL-Parameter, global)
-idle_power_txg_enable: true
-idle_power_txg_timeout: 1800
-idle_power_txg_force: true
+# ZFS TXG — nur noch per-Pool (das GLOBALE Modul-Param wird von der Rolle
+# NIE mehr angesetzt! fixup.md 2026-10-27: txg=1800 global traf SSD-Pool
+# (LXC-Rootfs) und blockierte docker in jedem LXC — hung-task zfs_freesp.)
+# Die zpool-Property txg_timeout (boot-persistent im Pool-MOS) existiert
+# erst ab OpenZFS 2.3 (PVE 9); auf 2.2.x meldet der Lauf SKIP und ändert
+# nichts. Mischpools mit SSD-Membern sind ausgeschlossen (siehe tasks).
+idle_power_txg_pools_enable: true
+idle_power_txg_pools_timeout: 1800
 
 # HDD Spin-Down
 idle_power_spin_enable: true
@@ -16,14 +20,14 @@ idle_power_spin_apm: 127
 idle_power_spin_data_sec: 600
 idle_power_spin_backup_sec: 600
 idle_power_spin_boot_sec: 0
-# Pool-Rollen (verifiziert 2026-10-10 via zpool list + VM-Disk-Mapping):
-#   HDD-2TB  = Backup-Pool (Mirror 2× WD20EARS, 1,8 T, DEGRADED — Platte ersetzen!)
-#              -> wird täglich 01:05 durch backup.sh (home-server-VM, sdb-Passthrough) geweckt
+# Pool-Rollen (2026-10-27: Pool HDD-2TB existiert NICHT mehr — zpool list
+#   zeigt nur noch HDD-Big + SSD-Pool; fixup.md Phase 9a entscheidet noch
+#   über Disable vs. Neuaufbau. Fällt ein HDD-Pool wieder an, muss sein
+#   Name hier ergänzt werden; ohne Eintrag gilt 'data' (600 s) als Fallback.)
 #   HDD-Big  = Daten-Pool (Mirror 14T+12T) -> enthält die home-server-VM-Disk (subvol-102, /opt-Docker-Daten)
 #              -> wird im Backup-Fenster 01:05+ ebenfalls beschrieben
 #   SSD-Pool = 2× Intenso 954 GB SSDs -> Spin-Down wirkt nicht, via 'boot'-Rolle ausgeschlossen
 idle_power_pool_roles:
-  HDD-2TB: backup
   HDD-Big: data
   SSD-Pool: boot
 idle_power_spin_overrides: {}
