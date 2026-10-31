@@ -29,6 +29,14 @@ services:
     extra_hosts:
       - "{{ steam_headless_hostname }}:127.0.0.1"
 
+    # SECRETS:
+    # USER_PASSWORD and SUNSHINE_PASS are injected via steam-headless.env
+    # (mode 0600, rendered next to this compose.yml by the env-file task in
+    # tasks/steam-headless.yml, no_log) - the only plaintext copy on disk.
+    # Service-level env_file: the tailscale sidecar receives no secrets.
+    env_file:
+      - steam-headless.env
+
     # ENVIRONMENT:
     environment:
       # System
@@ -39,7 +47,6 @@ services:
       - PUID=1000
       - PGID=1000
       - UMASK=000
-      - USER_PASSWORD={{ steam_headless_user_password }}
       # Mode
       - MODE=primary
       # Web UI (noVNC on http://<host>:{{ steam_headless_novnc_port }})
@@ -53,7 +60,6 @@ services:
       # Sunshine (Moonlight server)
       - ENABLE_SUNSHINE=true
       - SUNSHINE_USER={{ steam_headless_sunshine_user }}
-      - SUNSHINE_PASS={{ steam_headless_sunshine_password }}
       # Xorg (no monitor attached to the LXC - use dummy video config)
       - ENABLE_EVDEV_INPUTS=true
       - FORCE_X11_DUMMY_CONFIG=true
