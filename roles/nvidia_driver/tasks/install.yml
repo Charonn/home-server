@@ -54,13 +54,18 @@
       installer cached: {{ nvidia_state.cached | default('no') }} |
       gpu: {{ nvidia_state.gpu | default('?') }}
 
-- name: NVIDIA driver — assert the 3070 Ti is present
+- name: NVIDIA driver — assert the 3070 Ti is present (GA104 = lspci class name)
+  # lspci never prints marketing names: the discovery sed strips to the PCI
+  # class string ('GA104'), NOT 'RTX 3070 Ti'. Matching the marketing name here
+  # would fail on apply day (CI check skips the assert, hiding the mismatch).
   ansible.builtin.assert:
-    that: "'RTX 3070 Ti' in nvidia_state.gpu"
+    that: >-
+      nvidia_state.gpu | default('') is match('GA104')
     fail_msg: >-
-      No RTX 3070 Ti visible on the PCI bus — refusing to install a driver
-      that does not match this machine. Check passthrough/shutdown state.
-    success_msg: RTX 3070 Ti present — proceeeding.
+      No GA104 (RTX 3070 Ti, 10de:2482) visible on the PCI bus — refusing to
+      install a driver that does not match this machine. Check passthrough
+      state and the discovery line: {{ nvidia_state.gpu | default('?') }}.
+    success_msg: GA104 / RTX 3070 Ti present — proceeding.
   when: not ansible_check_mode
 
 - name: NVIDIA driver — install dir
