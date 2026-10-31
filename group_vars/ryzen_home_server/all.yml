@@ -59,3 +59,10 @@ steam_headless_nvidia_patch_version: "master"
 steam_headless_sunshine_csrf_origins:
   - "https://home-server.shark-scylla.ts.net"
   - "https://steam-headless.shark-scylla.ts.net"
+
+# --- backup.sh knobs ---
+# borg-check-Gate im backup.sh (daily quick / weekly full). Marcel hat es live
+# auskommentiert (2026-10-30, Backup-Probleme-Analyse) — hier AUS, damit der
+# nächste --tags backup-Apply das LIVE-Script abbildet statt es zurückzubiegen.
+# Reaktivierung ohne Script-Edit: backup_borg_check_enable: true.
+backup_borg_check_enable: false

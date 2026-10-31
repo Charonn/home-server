@@ -74,6 +74,9 @@ fi
 # Quick-Check taeglich (kein Decrypt, nur Metadata/MAC-Verify via Read), Full-Check 1x/Woche
 # (vollstaendige Integritaetspruefung aller Segments; ~min bis einige Min je Repo-Size).
 STEP="borg check"
+# Gate switch (Marcel 2026-10-30: live AUS — Backup-Probleme-Analyse; Grund = Review-Checkbox im PR).
+# Reaktivierung OHNE Script-Hand-Edit: backup_borg_check_enable: true in group_vars.
+{% if backup_borg_check_enable | default(false) | bool %}
 if [[ "$(date +%u)" == "{{ backup_borg_check_full_weekday }}" ]]; then
   log "Borg check (FULL) — woechentliche Integritaetspruefung"
   borg check "$BORG_LOCAL_REPO" || fail "borg check (FULL) fehlgeschlagen — Repo-Integritaet fragwuerdig. KEIN create, KEIN prune, KEIN rclone sync (Cloud-Spiegel bleibt auf letztem guten Stand)!"
@@ -82,6 +85,7 @@ else
   borg check --max-duration {{ backup_borg_check_max_duration }} "$BORG_LOCAL_REPO" \
     || fail "borg check (quick) fehlgeschlagen — kein Backup-Run!"
 fi
+{% endif %}
 
 # ---------- 2) Nextcloud maintenance ----------
 STEP="Nextcloud maintenance mode"
@@ -94,7 +98,7 @@ STEP="MariaDB dumps"
 log "MariaDB Backup Start"
 mkdir -p "$MARIADB_BACKUP_DIR"
 
-databases=$(docker exec -i "$CONTAINER_NAME" mysql -u"$USERNAME" -e "SHOW DATABASES;" \
+databases=$(docker exec -i "$CONTAINER_NAME" mysql -u"$USERNAME" -p"$MYSQL_PWD" -e "SHOW DATABASES;" \
   | grep -Ev "(Database|information_schema|performance_schema|sys)" || true)
 
 if [[ -z "$databases" ]]; then
@@ -104,7 +108,7 @@ fi
 for db in $databases; do
   echo "Backing up database: $db"
   # --single-transaction: konsistenter Snapshot bei laufenden Schreibern (InnoDB)
-  docker exec -i "$CONTAINER_NAME" mysqldump -u"$USERNAME" --single-transaction --databases "$db" \
+  docker exec -i "$CONTAINER_NAME" mysqldump -u"$USERNAME" -p"$MYSQL_PWD" --single-transaction --databases "$db" \
     | gzip > "$MARIADB_BACKUP_DIR/${DATE}_${db}.sql.gz"
   cp "$MARIADB_BACKUP_DIR/${DATE}_${db}.sql.gz" "$MARIADB_BACKUP_DIR2/${DATE}_${db}.sql.gz"
 done
