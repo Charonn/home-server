@@ -82,7 +82,31 @@
     dest: "{{ steam_headless_host_path }}/overrides/start-dumb-udev.sh"
     mode: '0755'
 
+- name: Deploy steam-headless env file (Secrets aus Vault — nie im Klartext)
+  # env-file-Kontrakt (PR #12/0bb8601, analog roles/backup): die Secrets
+  # (steam_headless_user_password -> USER_PASSWORD, steam_headless_sunshine_password
+  # -> SUNSHINE_PASS) rendern in dieses 0600-File NEBEN compose.yml; das
+  # Compose-Template referenziert es via env_file:. Laying order ist bewusst
+  # VOR dem compose-Render: der env-File-Producer muss existieren, bevor die
+  # Stack den env_file-Consumern beim up/apply liest.
+  ansible.builtin.template:
+    src: steam-headless/steam-headless.env.j2
+    dest: "{{ steam_headless_host_path }}/steam-headless.env"
+    mode: '0600'  # contains credentials
+  # no_log: true ist PFLICHT hier: das Template injiziert die Vault-Secrets
+  # INLINE in die Render-Ausgabe — der --diff des CI (public Logs) haette sie
+  # sonst im Klartext gedruckt (Leak-Klasse Backup, PR #13). no_log verdeckt
+  # Diff UND Fehler der Task.
+  no_log: true
+  # Check-Mode-Compat: im Check-Mode wird NICHTS geschrieben (kein Env-Render,
+  # keine Simulation) — der Render ist Real-Run-only.
+  when: not ansible_check_mode
+  notify: "Restart Docker Compose stack"
+  register: env_render_result
+
 - name: Deploy compose template
+  # Depends on steam-headless.env (env_file:) being deployed first — see the
+  # env-file task above; consumer ordering is also covered by the guard there.
   ansible.builtin.template:
     src: steam-headless/compose.yml.j2
     dest: "{{ steam_headless_host_path }}/compose.yml"
@@ -106,7 +130,10 @@
 - name: Set compose project src fact
   ansible.builtin.set_fact:
     docker_compose_project_src: "{{ steam_headless_host_path }}"
-  when: template_result.changed
+  # Auch bei NUR-Env-Change (Secret-Rotation): der Handler bezieht die Projekt-
+  # src über das Host-Fact — die notify-Task-vars werden NICHT geerbt
+  # (sandbox-verifiziert), ein fehlendes Fact würde den Handler hart failen.
+  when: template_result.changed or env_render_result.changed
 
 - name: Check Sunshine config exists (created on first container start)
   ansible.builtin.stat:
