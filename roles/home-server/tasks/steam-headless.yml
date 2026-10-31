@@ -76,6 +76,39 @@
       }
     mode: '0644'
 
+- name: Render Tailscale sidecar env file (steam-headless-ts.env)
+  # VOR dem compose-Render: der env-File-Producer muss existieren, bevor der
+  # ts-steam-headless-Service den env_file-Consumer beim up/apply liest.
+  # Eigenes File (nicht steam-headless.env): der Sidecar bekommt NUR den
+  # Tailscale-Key, keine Steam-Stack-Secrets (least privilege).
+  ansible.builtin.template:
+    src: steam-headless/steam-headless-ts.env.j2
+    dest: "{{ steam_headless_host_path }}/steam-headless-ts.env"
+    mode: '0600'  # contains credentials
+  # no_log: true ist PFLICHT hier: das Template injiziert das Vault-Secret
+  # INLINE in die Render-Ausgabe - der --diff des CI (public Logs) haette es
+  # sonst im Klartext gedruckt (Leak-Klasse Backup, PR #13). no_log verdeckt
+  # Diff UND Fehler der Task.
+  no_log: true
+  # Check-Mode-Compat: im Check-Mode wird NICHTS geschrieben (kein Env-Render,
+  # keine Simulation) - der Render ist Real-Run-only.
+  when: not ansible_check_mode
+  notify: "Restart Docker Compose stack"
+  register: ts_env_render_result
+
+- name: Set compose project src fact (ts sidecar env render)
+  # Handler-Fact bei Nur-TS-Env-Change: notify-Task-vars werden NICHT geerbt
+  # (PR #16-Sandbox-Befund), und das bestehende set_fact triggert nur bei
+  # template_result.changed. Der Handler braucht docker_compose_project_src
+  # (| mandatory), sobald IRGENDEINE notify-Quelle geaendert hat. Neues,
+  # unabhaengiges set_fact statt Erweiterung der bestehenden when-Bedingung:
+  # PR #16 aendert genau diese Zeile (`template_result.changed or
+  # env_render_result.changed`) - ein Dritterm-Zusatz hier wuerde beim Merge
+  # kollidieren. Eigene Block-Insertion = merge-neutral zu #16.
+  ansible.builtin.set_fact:
+    docker_compose_project_src: "{{ steam_headless_host_path }}"
+  when: ts_env_render_result.changed
+
 - name: Deploy patched start-dumb-udev.sh (prevents Xorg restart cascade - upstream issue #231)
   ansible.builtin.copy:
     src: steam-headless/start-dumb-udev.sh
@@ -86,7 +119,7 @@
   ansible.builtin.template:
     src: steam-headless/compose.yml.j2
     dest: "{{ steam_headless_host_path }}/compose.yml"
-    mode: '0600'  # contains credentials
+    mode: '0600'  # secret-free now (secrets render via steam-headless*.env, no_log); 0600 kept as hardening
   notify: "Restart Docker Compose stack"
   vars:
     docker_compose_project_src: "{{ steam_headless_host_path }}"
