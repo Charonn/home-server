@@ -1,0 +1,19 @@
+---
+# NVIDIA driver stack — SINGLE SOURCE OF TRUTH for the whole GPU stack.
+# Bump version ONLY here; the steam CT userspace and the home-server
+# steam-headless container must always match the ryzen host driver version.
+# Current pin: 595.99.02 — latest production branch with keylase NvFBC
+# patch support (595.104.02 has no NvFBC patch yet — do NOT bump until
+# patch-fbc.sh lists it, or home-server steam-headless capture breaks).
+nvidia_driver_version: "595.99.02"
+
+# .run installer coordinates (shared by host install + CT userspace extract)
+nvidia_driver_base_url: "https://download.nvidia.com/XFree86/Linux-x86_64/{{ nvidia_driver_version }}/"
+nvidia_driver_run_name: "NVIDIA-Linux-x86_64-{{ nvidia_driver_version }}.run"
+nvidia_driver_cache_dir: /var/cache/nvidia
+
+# sha256 of NVIDIA-Linux-x86_64-595.99.02.run — pinned for reproducibility.
+# Verified locally: sha256sum on the downloaded .run (official XFree86 URL).
+nvidia_driver_run_sha256: "e87477958bf763070549324bd5ad6c948eba6ed210e44005b3eff84940f6e1ec"
+
+# nvidia stack — other role knobs live in roles/*/defaults/main.yml

@@ -1,0 +1,19 @@
+[Unit]
+# Managed by ansible (role steam) — verbatim from live CT 110 (2026-10-16).
+# Runs AFTER sunshine (its uinput devices must exist), then restarts X so the
+# generated evdev input config is picked up.
+Description=Create Sunshine virtual input nodes and rescan X :99 input
+After=sunshine.service
+Requires=xorg-virtual.service
+Before=x-compositor.service steam-headless.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/setup-input-dev.sh
+ExecStartPost=udevadm trigger --subsystem-match=input 2>/dev/null || true
+ExecStartPost=/bin/sleep 1
+ExecStartPost=systemctl restart xorg-virtual
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

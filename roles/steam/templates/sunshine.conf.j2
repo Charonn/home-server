@@ -1,0 +1,37 @@
+# Managed by ansible (role steam) — do not edit
+# Sunshine configuration (Debian 13 LXC "steam" on Proxmox, RTX 3070 Ti)
+#
+# The encoder is managed automatically by /usr/local/bin/sunshine-setup.sh
+# (runs as root before the sunshine service):
+#   - CUDA works  -> encoder = nvenc    (hardware NVENC encoding)
+#   - CUDA broken -> encoder = software (libx264 fallback, keeps streaming alive)
+#
+# CUDA inside this container requires the LXC device ACL on the Proxmox host
+# (/etc/pve/lxc/<vmid>.conf) to allow the nvidia-uvm major (506 as of driver
+# 580.119.02):   lxc.cgroup2.devices.allow: c 506:* rwm
+#
+# capture = x11 : X11 screen grab on the Xorg :99 server (xorg-virtual.service).
+#                 Can be switched to 'nvfbc' for zero-copy GPU capture once the
+#                 driver's NvFBC is patched for GeForce cards.
+
+capture = x11
+encoder = nvenc
+input = auto
+evdev_device = /dev/input/event0
+
+# Disable the system tray: its "Playing <app>" desktop notification (via
+# D-Bus org.freedesktop.Notifications) blocks the RTSP thread for the
+# notification's display timeout (~25s), delaying the ANNOUNCE response
+# past Moonlight's 15s timeout -> "RTSP ANNOUNCE request failed".
+system_tray = disabled
+
+min_log_level = 0
+
+# CSRF: allow access from all origins (LXC headless server, trusted LAN)
+csrf_allowed_origins = https://192.168.88.201:47990,https://192.168.88.193:47990,https://100.68.188.59:47990,https://0.0.0.0:47990,https://[::]:47990
+
+# Web UI credentials: file-based (credentials/, key/cert below); usernames and
+# the password hash are managed OUTSIDE this file (sunshine_state.json /
+# credentials dir). No plaintext secrets here.
+private_key_file = {{ steam_sunshine_conf_dir }}/credentials/sunshine.key
+cert_file = {{ steam_sunshine_conf_dir }}/credentials/sunshine.cert

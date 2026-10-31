@@ -1,0 +1,6 @@
+---
+# nvidia_driver role handlers
+- name: nvidia — update initramfs
+  ansible.builtin.command: update-initramfs -u -k all
+  changed_when: true
+  when: not ansible_check_mode

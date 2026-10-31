@@ -1,15 +1,22 @@
 #!/bin/bash
 # Managed by Ansible (role: backup) — DO NOT EDIT
-# Secrets come from Ansible Vault (injected at deploy; NOT stored in this file).
+# Secrets come from Ansible Vault into the env file (backup.env, mode 0600) —
+# NEVER inlined here. This script may be printed in full (CI --diff, logs) without
+# ever exposing a credential; the env-file template task runs with no_log: true.
 # Basis-Verhalten wie das Original (Karte t_63c81ce9): MariaDB -> Borg -> prune -> rclone.
 # Erweitert 2026-10-11 (Marcel-OK): borg-check-Gate, prune VOR create, woechentlicher Full-Check,
 #   leere-db-liste-Guard, rclone mit SKIP statt exit-1 (kein Script-Abbruch durch Parallel-Lauf).
 
 set -euo pipefail
 
-# --- Secrets/environment (vault-injected; not stored in this file) ---
-export MYSQL_PWD="{{ backup_mariadb_password }}"
-export BORG_PASSPHRASE="{{ backup_borg_passphrase }}"
+# --- Secrets/environment: sourced from the env file, never embedded in this script ---
+ENV_FILE="{{ backup_env_file }}"
+# shellcheck disable=SC1090
+. "$ENV_FILE"
+# Fail fast instead of running unauthenticated if the env file is missing/incomplete:
+: "${MYSQL_PWD:?MYSQL_PWD not set — check $ENV_FILE}"
+: "${BORG_PASSPHRASE:?BORG_PASSPHRASE not set — check $ENV_FILE}"
+export MYSQL_PWD BORG_PASSPHRASE
 CONTAINER_NAME="{{ backup_mariadb_container }}"
 USERNAME="{{ backup_mariadb_user }}"
 MARIADB_BACKUP_DIR="{{ backup_mariadb_backup_dir }}"
@@ -37,7 +44,7 @@ fail() {
     echo "$(date +%Y%m%d_%H%M%S) - BACKUP FAILED in step: $1" >&2
     # Telegram-FAIL-Notice (kein Markdown, plain text)
     if [[ "{{ backup_telegram_enable }}" == "True" ]]; then
-        curl -s -X POST "https://api.telegram.org/bot{{ backup_telegram_bot_token }}/sendMessage" \
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="{{ backup_telegram_chat_id }}" \
             --data-urlencode "text=❌ Backup FAILED — step: $1 ($(hostname -s), $(date '+%d.%m. %H:%M'))
 Details: cron-Mail / $(dirname "${BASH_SOURCE[0]:-$0}")/$(basename "${BASH_SOURCE[0]:-$0}")" \
@@ -49,7 +56,7 @@ Details: cron-Mail / $(dirname "${BASH_SOURCE[0]:-$0}")/$(basename "${BASH_SOURC
 # Telegram-Erfolgs-Notice (kompakt, kein Markdown)
 tg_ok() {
     if [[ "{{ backup_telegram_enable }}" == "True" ]]; then
-        curl -s -X POST "https://api.telegram.org/bot{{ backup_telegram_bot_token }}/sendMessage" \
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="{{ backup_telegram_chat_id }}" \
             --data-urlencode "text=$1" >/dev/null 2>&1 || true
     fi
@@ -67,6 +74,9 @@ fi
 # Quick-Check taeglich (kein Decrypt, nur Metadata/MAC-Verify via Read), Full-Check 1x/Woche
 # (vollstaendige Integritaetspruefung aller Segments; ~min bis einige Min je Repo-Size).
 STEP="borg check"
+# Gate switch (Marcel 2026-10-30: live AUS — Backup-Probleme-Analyse; Grund = Review-Checkbox im PR).
+# Reaktivierung OHNE Script-Hand-Edit: backup_borg_check_enable: true in group_vars.
+{% if backup_borg_check_enable | default(false) | bool %}
 if [[ "$(date +%u)" == "{{ backup_borg_check_full_weekday }}" ]]; then
   log "Borg check (FULL) — woechentliche Integritaetspruefung"
   borg check "$BORG_LOCAL_REPO" || fail "borg check (FULL) fehlgeschlagen — Repo-Integritaet fragwuerdig. KEIN create, KEIN prune, KEIN rclone sync (Cloud-Spiegel bleibt auf letztem guten Stand)!"
@@ -75,6 +85,7 @@ else
   borg check --max-duration {{ backup_borg_check_max_duration }} "$BORG_LOCAL_REPO" \
     || fail "borg check (quick) fehlgeschlagen — kein Backup-Run!"
 fi
+{% endif %}
 
 # ---------- 2) Nextcloud maintenance ----------
 STEP="Nextcloud maintenance mode"
@@ -87,7 +98,7 @@ STEP="MariaDB dumps"
 log "MariaDB Backup Start"
 mkdir -p "$MARIADB_BACKUP_DIR"
 
-databases=$(docker exec -i "$CONTAINER_NAME" mysql -u"$USERNAME" -e "SHOW DATABASES;" \
+databases=$(docker exec -i "$CONTAINER_NAME" mysql -u"$USERNAME" -p"$MYSQL_PWD" -e "SHOW DATABASES;" \
   | grep -Ev "(Database|information_schema|performance_schema|sys)" || true)
 
 if [[ -z "$databases" ]]; then
@@ -97,7 +108,7 @@ fi
 for db in $databases; do
   echo "Backing up database: $db"
   # --single-transaction: konsistenter Snapshot bei laufenden Schreibern (InnoDB)
-  docker exec -i "$CONTAINER_NAME" mysqldump -u"$USERNAME" --single-transaction --databases "$db" \
+  docker exec -i "$CONTAINER_NAME" mysqldump -u"$USERNAME" -p"$MYSQL_PWD" --single-transaction --databases "$db" \
     | gzip > "$MARIADB_BACKUP_DIR/${DATE}_${db}.sql.gz"
   cp "$MARIADB_BACKUP_DIR/${DATE}_${db}.sql.gz" "$MARIADB_BACKUP_DIR2/${DATE}_${db}.sql.gz"
 done

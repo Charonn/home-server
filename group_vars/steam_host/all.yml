@@ -1,0 +1,6 @@
+---
+# steam CT 110 group vars — non-secret tuning. Secrets (sunshine passwords,
+# tailscale authkey if managed by this role later) go into
+# group_vars/steam_host/default.vault.yml — NEVER here, NEVER in templates.
+steam_sunshine_conf_dir: /home/opencode/.config/sunshine
+steam_units_staging_dir: /var/lib/steam-units
