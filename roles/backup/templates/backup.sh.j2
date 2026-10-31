@@ -6,11 +6,6 @@
 # Basis-Verhalten wie das Original (Karte t_63c81ce9): MariaDB -> Borg -> prune -> rclone.
 # Erweitert 2026-10-11 (Marcel-OK): borg-check-Gate, prune VOR create, woechentlicher Full-Check,
 #   leere-db-liste-Guard, rclone mit SKIP statt exit-1 (kein Script-Abbruch durch Parallel-Lauf).
-# Portiert 2026-10-31 (aus Marcells laufender Version auf home-server):
-#   - mysql/mysqldump mit -p"$MYSQL_PWD": MYSQL_PWD wird beim HOST exportiert, docker exec
-#     vererbt Host-Env NICHT in den Container -> ohne -p läuft 'mysql -u root' unauthentifiziert
-#     und bricht mit Access denied ab.
-#   - borg-check-Gate per backup_borg_check_enable abschaltbar (aktuell false, Marcel deaktiviert)
 
 set -euo pipefail
 
@@ -79,9 +74,9 @@ fi
 # Quick-Check taeglich (kein Decrypt, nur Metadata/MAC-Verify via Read), Full-Check 1x/Woche
 # (vollstaendige Integritaetspruefung aller Segments; ~min bis einige Min je Repo-Size).
 STEP="borg check"
-if [[ "{{ backup_borg_check_enable }}" != "True" ]]; then
-  log "Borg check uebersprungen (backup_borg_check_enable: {{ backup_borg_check_enable }})"
-else
+# Gate switch (Marcel 2026-10-30: live AUS — Backup-Probleme-Analyse; Grund = Review-Checkbox im PR).
+# Reaktivierung OHNE Script-Hand-Edit: backup_borg_check_enable: true in group_vars.
+{% if backup_borg_check_enable | default(false) | bool %}
 if [[ "$(date +%u)" == "{{ backup_borg_check_full_weekday }}" ]]; then
   log "Borg check (FULL) — woechentliche Integritaetspruefung"
   borg check "$BORG_LOCAL_REPO" || fail "borg check (FULL) fehlgeschlagen — Repo-Integritaet fragwuerdig. KEIN create, KEIN prune, KEIN rclone sync (Cloud-Spiegel bleibt auf letztem guten Stand)!"
@@ -90,7 +85,7 @@ else
   borg check --max-duration {{ backup_borg_check_max_duration }} "$BORG_LOCAL_REPO" \
     || fail "borg check (quick) fehlgeschlagen — kein Backup-Run!"
 fi
-fi
+{% endif %}
 
 # ---------- 2) Nextcloud maintenance ----------
 STEP="Nextcloud maintenance mode"
