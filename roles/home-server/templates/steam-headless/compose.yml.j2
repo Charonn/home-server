@@ -33,7 +33,9 @@ services:
     # USER_PASSWORD and SUNSHINE_PASS are injected via steam-headless.env
     # (mode 0600, rendered next to this compose.yml by the env-file task in
     # tasks/steam-headless.yml, no_log) - the only plaintext copy on disk.
-    # Service-level env_file: the tailscale sidecar receives no secrets.
+    # Service-level env_file: the tailscale sidecar receives no secrets from
+    # THIS file - its own TS_AUTHKEY lives in steam-headless-ts.env (see the
+    # ts-steam-headless service below).
     env_file:
       - steam-headless.env
 
@@ -131,8 +133,14 @@ services:
     image: tailscale/tailscale:v1.96.5
     container_name: ts-steam-headless
     restart: unless-stopped
+    # TS_AUTHKEY is injected via steam-headless-ts.env (mode 0600, rendered
+    # next to this compose.yml by the env-file task in tasks/steam-headless.yml,
+    # no_log) - the only plaintext copy on disk (env-file/no_log contract,
+    # analog steam-headless.env, PR #16/#17).
+    # Service-level env_file: the sidecar receives ONLY the Tailscale key.
+    env_file:
+      - steam-headless-ts.env
     environment:
-      TS_AUTHKEY: "{{ tailscale_auth_key_vault }}"
       TS_EXTRA_ARGS: "--hostname=steam-headless"
       TS_SERVE_CONFIG: "/config/config.json"
       TS_STATE_DIR: "/var/lib/tailscale"
