@@ -1,5 +1,0 @@
-# Managed by Ansible (idle_power.yml) — DO NOT EDIT
-# Applies the ZFS module parameter at boot + on demand:
-#   w  = write the value to the sysfs file (create if missing)
-# zfs_txg_timeout is GLOBAL for all pools (module param, see report).
-w /sys/module/zfs/parameters/zfs_txg_timeout - - - - {{ idle_power_txg_timeout }}

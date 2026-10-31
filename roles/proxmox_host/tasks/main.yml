@@ -251,7 +251,16 @@
       changed_when: false
 
     - name: Check effective nvidia-drm modeset on the running kernel
-      ansible.builtin.command: cat /sys/module/nvidia_drm/parameters/modeset
+      # Der Modul-Param existiert NUR, wenn das nvidia-Modul geladen ist.
+      # CI 2026-10-27 (fixup.md Phase 9c): nach der Host-Fixup-Reparatur war
+      # der Treiber nicht geladen -> das unbedingte `cat` endete rc=1 und
+      # liess den GESAMTEN Check-Run sterben, bevor die Folge-Rollen (z.B.
+      # idle_power) überhaupt erreicht wurden. Fehlendes Modul = Lesesignal
+      # 'not-loaded': der Warn-Task greift (!= '1'), das Reboot-Gate wird
+      # nur aus einem echten 0/1-Leseergebnis entschieden.
+      ansible.builtin.shell: |
+        p=/sys/module/nvidia_drm/parameters/modeset
+        if [ -r "$p" ]; then cat "$p"; else echo not-loaded; fi
       register: nvidia_modeset_state
       changed_when: false
       check_mode: false  # read-only, safe in check mode
@@ -262,7 +271,8 @@
         reboot_timeout: 600
       when:
         - proxmox_host_reboot_on_config_change | default(false)
-        - nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1'
+        - (nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1')
+        - nvidia_modeset_state.stdout | trim in ['0', '1']
 
     - name: Warn that the Proxmox host still needs a reboot for nvidia-drm modeset
       ansible.builtin.debug:
