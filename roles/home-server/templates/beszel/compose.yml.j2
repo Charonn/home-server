@@ -15,7 +15,7 @@ services:
       - "{{ beszel_host_path }}/tailscale/config:/config"
     network_mode: service:beszel
   beszel:
-    image: henrygd/beszel:latest
+    image: henrygd/beszel:0.11.1
     container_name: beszel
     restart: unless-stopped
     volumes:

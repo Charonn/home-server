@@ -107,8 +107,6 @@ und weckt nicht. smartd weckt dank `-n standby,q` nicht beim 30-min-Poll.
 
 Pool-Rollen sind als Defaults gesetzt: HDD-Big=data (10 min),
 SSD-Pool=boot (nie).
-Pool-Rollen sind als Defaults gesetzt: HDD-2TB=backup (10 min),
-HDD-Big=data (20 min), SSD-Pool=boot (nie).
 
 ## NVIDIA GPU stack (roles: `nvidia_driver`, `steam`)
 
