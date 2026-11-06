@@ -267,7 +267,13 @@
         reboot_timeout: 600
       when:
         - proxmox_host_reboot_on_config_change | default(false)
-        - (nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1')
+        # config-changed-this-run ist hier NICHT mehr sichtbar: die modprobe.d-
+        # Datei schreibt seither das nvidia_driver-ROLE (läuft NACH dieser Rolle;
+        # Register kann nicht rückwärts im Play fließen). Verbleibendes Signal
+        # = effektiver Zustand am laufenden Kernel: '0' -> config aktiviert,
+        #   Reboot steht an. Lag um einen Lauf verzögert auf Config-Ändertagen —
+        #   kompensiert Marcels Standard-Ablauf: Reboot + Re-Run.
+        - (nvidia_modeset_state.stdout | trim) != '1'
         - nvidia_modeset_state.stdout | trim in ['0', '1']
 
     - name: Warn that the Proxmox host still needs a reboot for nvidia-drm modeset
@@ -278,4 +284,5 @@
           -e proxmox_host_reboot_on_config_change=true to reboot automatically.
       when:
         - not (proxmox_host_reboot_on_config_change | default(false))
-        - nvidia_modeset_config.changed or (nvidia_modeset_state.stdout | trim) != '1'
+        # siehe Reboot-Gate oben: nur noch effektiver Zustand als Signal
+        - (nvidia_modeset_state.stdout | trim) != '1'
