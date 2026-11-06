@@ -75,7 +75,11 @@
                 libcuda.so* libnvidia-rtcore.so* libnvidia-pkcs11*; do
       files+=( "/var/cache/nvidia/extract-{{ nvidia_driver_version }}/$name" )
     done
-    if [ ${#files[@]} -eq 0 ]; then
+    # Jinja-Falle (CI-Run 42282980795): in Shell-Strings darf die Sequenz
+    # offene-geschweifte-Klammer + Doppelkreuz nicht vorkommen — sie oeffnet
+    # einen Jinja-KOMMENTAR und zerstoert das Script-Argument-Splitting.
+    # Leere-Array-Check daher ueber die String-Darstellung des Arrays.
+    if [ -z "${files[*]}" ]; then
       echo "no userspace libs matched — extraction layout changed?"; exit 2
     fi
     tar -czf - -C / "${files[@]#/}" \
