@@ -59,3 +59,17 @@ steam_headless_nvidia_patch_version: "master"
 steam_headless_sunshine_csrf_origins:
   - "https://home-server.shark-scylla.ts.net"
   - "https://steam-headless.shark-scylla.ts.net"
+
+# Dawarich (self-hosted location history, https://github.com/Freika/dawarich)
+# Pin the app image deliberately - releases can be breaking
+# (README: "DO NOT UPDATE AUTOMATICALLY"). Bump only after reading release notes.
+dawarich_version: "1.19.0"
+dawarich_host_path: "/opt/dawarich"
+dawarich_timezone: "Europe/Berlin"
+dawarich_public_port: 3000
+# Hostnames Rails accepts requests for: the Tailscale sidecar hostname
+# (https://dawarich.shark-scylla.ts.net) plus localhost for direct access.
+dawarich_application_hosts: "dawarich.shark-scylla.ts.net,localhost,127.0.0.1"
+# Secrets (see dawarich_vault.yml):
+dawarich_secret_key_base: "{{ dawarich_secret_key_base_vault }}"
+dawarich_db_password: "{{ dawarich_db_password_vault }}"

@@ -17,6 +17,17 @@
 - name: "postgres"
   include_tasks: "postgres.yml"
   tags: "postgres"
+- name: "dawarich"
+  include_tasks:
+    file: "dawarich.yml"
+    # dynamic includes do not propagate tags by default; apply: fixes that
+    # so this service can be run standalone with --tags dawarich
+    apply:
+      tags:
+        - "home-server"
+        - "dawarich"
+  tags:
+    - "dawarich"
 - name: "immich"
   include_tasks: "immich.yml"
   tags:
