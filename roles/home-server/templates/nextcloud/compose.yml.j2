@@ -1,7 +1,7 @@
 ---
 services:
   ts-nextcloud:
-    image: tailscale/tailscale:v1.96.5
+    image: tailscale/tailscale:{{ tailscale_version }}
     container_name: ts-nextcloud
     restart: unless-stopped
     environment:

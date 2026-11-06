@@ -184,6 +184,12 @@
       name: pve-cpu-governor.service
       enabled: true
       state: started
+      # Race-Fix 2026-10-31: Template (notify daemon-reload) und Start laufen im
+      # selben Play-Block — systemd startet sonst die IN-MEMORY-Definition aus
+      # VOR dem Reload (beobachtet bei idle-spin: alter ExecStart inkl. der
+      # entfernten WD20EARS-Zeile -> Job failed). daemon_reload hier erzwingt
+      # den Reload VOR dem Start.
+      daemon_reload: true
     when: idle_power_governor_apply | bool and not ansible_check_mode
 
   # ===================================================================
@@ -280,6 +286,10 @@
       name: idle-spin.service
       enabled: true
       state: started
+      # Race-Fix 2026-10-31: siehe Governor-Task — Start muss nach daemon-reload
+      # laufen, sonst wird die alte ExecStart-Liste ausgefuehrt (Phase-9b-Fehler
+      # kam beim Deploy zurueck: 'control process exited with error code').
+      daemon_reload: true
     when: idle_power_spin_enable | bool and not ansible_check_mode
 
   - name: Lese Spin-Zustaende (hdparm -C, fuer Report)

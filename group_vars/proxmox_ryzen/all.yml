@@ -8,9 +8,14 @@ home_server_lxc_hostname: "home-server"
 home_server_lxc_cores: 6
 home_server_lxc_memory: 11444
 home_server_lxc_swap: 0
-home_server_lxc_rootfs: "SSD-Pool:40"
+home_server_lxc_rootfs: "SSD-Pool:50"
 # Bind mounts / storage mounts applied at creation time
+# mp0: 2026-10-31 auf Live-Stand gebracht: das Backup-Target ist das ZFS-Dataset
+# HDD-Big/backups (Host-Pfad /HDD-Big/backups) — der alte Pool HDD-2TB fiel am
+# 2026-10-25 aus. Ein Host-Verzeichnis /mnt/backups (39G Altlast mit vm-backups)
+# wurde bei der Migration NICHT gelöscht: mit "- /mnt/backups" würde ein frisches
+# pct create/restore die Backups still an diesen 39G-Fehlort binden.
 home_server_lxc_mounts:
-  - "/mnt/backups,mp=/mnt/backups"
+  - "/HDD-Big/backups,mp=/mnt/backups"
   - "HDD-Big:1000,mp=/opt"
 home_server_lxc_net0: "name=eth0,bridge=vmbr0,ip=dhcp,type=veth"

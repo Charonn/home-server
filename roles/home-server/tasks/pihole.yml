@@ -55,7 +55,7 @@
 - name: Deploy Tailscale container for pihole
   community.docker.docker_container:
     name: ts-pihole
-    image: tailscale/tailscale:latest
+    image: "tailscale/tailscale:{{ tailscale_version }}"
     state: started
     networks:
       - name: pihole

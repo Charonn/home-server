@@ -122,7 +122,7 @@ services:
     # so it runs on its own bridge network and proxies to the host port via
     # host.docker.internal. Moonlight/Sunshine streaming always connects to
     # the LXC directly (UDP cannot be proxied by tailscale serve).
-    image: tailscale/tailscale:v1.96.5
+    image: tailscale/tailscale:{{ tailscale_version }}
     container_name: ts-steam-headless
     restart: unless-stopped
     environment:

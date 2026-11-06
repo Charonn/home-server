@@ -17,6 +17,11 @@ mail_domain: "{{ mail_domain_vault }}"
 tailscale_beszel_auth_key: "{{ tailscale_beszel_auth_key_vault }}"
 tailscale_auth_key: "{{ tailscale_auth_key_vault }}"
 
+# Central Tailscale sidecar container version. Used by all compose templates
+# and the pihole sidecar task. "v1.104" tracks the latest 1.104.x patch
+# release; pin to an exact version (e.g. "v1.104.4") to freeze it.
+tailscale_version: "v1.104"
+
 paperless_version: "{{ paperless_version_vault }}"
 paperless_allowed_hosts: "{{ paperless_allowed_hosts_vault }}"
 paperless_trusted_origins: "{{ paperless_trusted_origins_vault }}"
