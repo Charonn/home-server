@@ -57,12 +57,12 @@
       gpu: {{ nvidia_state.gpu | default('?') }}
 
 - name: NVIDIA driver — assert the 3070 Ti is present (GA104 = lspci class name)
-  # lspci never prints marketing names: the discovery sed strips to the PCI
-  # class string ('GA104'), NOT 'RTX 3070 Ti'. Matching the marketing name here
-  # would fail on apply day (CI check skips the assert, hiding the mismatch).
+  # lspci never prints marketing names: discovery returns "<count>|<PCI class>"
+  # ('1|GA104'), NOT 'RTX 3070 Ti'. Apply-day-Fix 2026-11-06: der Assert nutzt
+  # search statt match — match prueft ab STRINGANFANG und traf '1|GA104' nie
+  # (CI check-mode skipt diesen Assert, deshalb ueberlebte er gruen).
   ansible.builtin.assert:
-    that: >-
-      nvidia_state.gpu | default('') is match('GA104')
+    that: nvidia_state.gpu | default('') is search('GA104')
     fail_msg: >-
       No GA104 (RTX 3070 Ti, 10de:2482) visible on the PCI bus — refusing to
       install a driver that does not match this machine. Check passthrough
