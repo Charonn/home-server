@@ -1,0 +1,16 @@
+#!/bin/bash
+# Managed by ansible (role steam) — do not edit
+# Sunshine start: attach to the NVIDIA Xorg server on {{ steam_x_display }}
+# (xorg-virtual.service). Runs as '{{ steam_sunshine_user }}', who owns the
+# {{ steam_x_display }} desktop session.
+#
+# The encoder (nvenc vs software) is chosen automatically by sunshine-setup.sh
+# depending on whether CUDA (/dev/nvidia-uvm) is usable inside this LXC.
+set -e
+
+export DISPLAY={{ steam_x_display }}
+export XAUTHORITY=/tmp/.Xauthority
+export HOME=/home/{{ steam_sunshine_user }}
+export XDG_RUNTIME_DIR=/run/user/1001
+
+exec /usr/bin/sunshine

@@ -1,0 +1,21 @@
+[Unit]
+Description=Openbox WM + Picom compositor on X display {{ steam_x_display }}
+After=xorg-virtual.service input-dev-setup.service
+Requires=xorg-virtual.service
+Before=steam-headless.service
+
+[Service]
+Type=simple
+User=opencode
+Group=opencode
+Environment="DISPLAY={{ steam_x_display }}"
+Environment="XAUTHORITY=/tmp/.Xauthority"
+Environment="HOME=/home/opencode"
+Environment="XDG_RUNTIME_DIR=/run/user/1001"
+ExecStartPre=/bin/sleep 2
+ExecStart={{ steam_bin_dir }}/start-x-compositor.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

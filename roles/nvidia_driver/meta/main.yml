@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Marcel H + Hermes Agent
+  description: Install/upgrade NVIDIA driver on the Proxmox host (RTX 3070 Ti)
+  license: MIT
+  min_ansible_version: '2.16'
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+dependencies: []

@@ -15,6 +15,12 @@ on:
   pull_request:
     branches: [main]
 
+# One run per branch at a time: a new push cancels the superseded run instead
+# of queueing behind it (5-run backlog on 2026-10-16 serialized pushes ~14 min each).
+concurrency:
+  group: ansible-check-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ansible-check:
     runs-on: ubuntu-latest

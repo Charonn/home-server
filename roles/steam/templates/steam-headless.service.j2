@@ -1,0 +1,23 @@
+[Unit]
+Description=Steam Headless Remote Play
+After=x-compositor.service xorg-virtual.service network.target
+Wants=x-compositor.service xorg-virtual.service
+
+[Service]
+Type=simple
+User=opencode
+Group=opencode
+Environment="DISPLAY={{ steam_x_display }}"
+Environment="XAUTHORITY=/tmp/.Xauthority"
+Environment="HOME=/home/opencode"
+Environment="XDG_RUNTIME_DIR=/run/user/1001"
+Environment="STEAM_RUNTIME=1"
+Environment="SDL_AUDIODRIVER=pulse"
+Environment="PULSE_SERVER=unix:/run/user/1001/pulse/native"
+ExecStartPre=/bin/sleep 10
+ExecStart={{ steam_bin_dir }}/start-steam-headless.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

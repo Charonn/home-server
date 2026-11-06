@@ -1,0 +1,85 @@
+#!/bin/bash
+# Managed by ansible (role steam) — do not edit
+# Sunshine pre-start: ensure input devices + NVIDIA device nodes are usable,
+# and auto-select the encoder based on whether CUDA actually works.
+# Runs as root (PermissionsStartOnly=true) before sunshine.service starts.
+set -u
+
+CONF_DIR=/home/{{ steam_sunshine_user }}/.config/sunshine
+CONF="$CONF_DIR/sunshine.conf"
+
+log() { echo "[sunshine-setup] $*"; }
+
+########################################
+# 1. uinput for gamepad/mouse/keyboard injection
+########################################
+/sbin/modprobe uinput 2>/dev/null || true
+if [ ! -e /dev/uinput ]; then
+    /bin/mknod /dev/uinput c 10 223
+    log "created missing /dev/uinput node"
+fi
+/usr/sbin/groupadd -f uinput 2>/dev/null || true
+chown root:uinput /dev/uinput 2>/dev/null || true
+chmod 0660 /dev/uinput 2>/dev/null || true
+/usr/sbin/usermod -aG uinput {{ steam_sunshine_user }} 2>/dev/null || true
+
+########################################
+# 2. Ensure /dev/nvidia-uvm + tools nodes exist with the CURRENT major
+#    (the nvidia-uvm major is dynamic; it moved to 506 with driver 580).
+########################################
+uvm_major=$(awk '$2=="nvidia-uvm" {print $1}' /proc/devices)
+if [ -n "$uvm_major" ]; then
+    for spec in "nvidia-uvm 0" "nvidia-uvm-tools 1"; do
+        set -- $spec
+        node="/dev/$1"; minor="$2"
+        cur_major=$(printf '%d' "0x$(stat -c '%t' "$node" 2>/dev/null)" 2>/dev/null || echo -1)
+        if [ ! -e "$node" ] || [ "$cur_major" != "$uvm_major" ]; then
+            rm -f "$node"
+            /bin/mknod "$node" c "$uvm_major" "$minor" && chmod 666 "$node"
+            log "(re)created $node with major $uvm_major minor $minor"
+        fi
+    done
+fi
+
+# nvidia-caps readable (needed by some driver features)
+for cap in /dev/nvidia-caps/*; do
+    [ -e "$cap" ] && chmod 666 "$cap" 2>/dev/null || true
+done
+
+# Xauthority readable by the session user
+[ -f /tmp/.Xauthority ] && chmod 644 /tmp/.Xauthority 2>/dev/null || true
+
+# Ensure runtime dir exists
+mkdir -p /run/user/1001
+chown {{ steam_sunshine_user }}:{{ steam_sunshine_user }} /run/user/1001
+chmod 700 /run/user/1001
+
+########################################
+# 3. Encoder auto-selection:
+#    - CUDA works  -> force 'encoder = nvenc' (hardware encoding)
+#    - CUDA broken -> force 'encoder = software' so sunshine still starts
+#      (a forced nvenc with broken CUDA would make sunshine exit and loop)
+########################################
+if [ ! -f "$CONF" ]; then
+    log "WARNING: $CONF not found, skipping encoder selection"
+else
+    if /usr/local/bin/cuda-check >/tmp/sunshine-cuda-check.log 2>&1; then
+        log "CUDA OK ($(cat /tmp/sunshine-cuda-check.log))"
+        if grep -q '^encoder = software' "$CONF"; then
+            sed -i 's/^encoder = software/encoder = nvenc/' "$CONF"
+            log "UPGRADED encoder: software -> nvenc (CUDA is working)"
+        fi
+    else
+        log "CUDA BROKEN: $(cat /tmp/sunshine-cuda-check.log)"
+        log "  Most common cause in this LXC: the device ACL on the Proxmox host"
+        log "  blocks /dev/nvidia-uvm. Fix in /etc/pve/lxc/<vmid>.conf:"
+        log "    lxc.cgroup2.devices.allow: c $(grep nvidia-uvm /proc/devices | awk '{print $1}'):* rwm"
+        if grep -q '^encoder = nvenc' "$CONF"; then
+            sed -i 's/^encoder = nvenc/encoder = software/' "$CONF"
+            log "FALLBACK: encoder nvenc -> software (CUDA broken, keeping sunshine alive)"
+        fi
+    fi
+fi
+
+sleep 1
+exit 0

@@ -1,0 +1,24 @@
+---
+# NVIDIA driver stack — SINGLE SOURCE OF TRUTH for the whole GPU stack.
+# Bump version ONLY here; every consumer must run the identical version:
+#   - ryzen host: kernel module + userspace (.run install)
+#   - CT 102 'home-server' + CT 110 'steam': userspace overlay pushed from
+#     the SAME cached .run (roles/nvidia_driver/tasks/ct_userspace.yml)
+#
+# Pin 595.99.02 = zuletzt volle Stacks getestete Version. Der alte Bump-Guard
+# (keylase NvFBC-Patch nur bis 595.99.02 verfügbar) ist ENTFALLEN — das
+# steam-headless-Compose-Stack wurde entfernt (PR #12 Goals 2026-10-31).
+# Naechster Bump auf z.B. 595.112.07: Version + sha256 unten tauschen, Host
+# re-run, Reboot, Re-run (CT-Overlays folgen der Host-Parity-Gate).
+nvidia_driver_version: "595.99.02"
+
+# .run installer coordinates (shared by host install + CT userspace extract)
+nvidia_driver_base_url: "https://download.nvidia.com/XFree86/Linux-x86_64/{{ nvidia_driver_version }}/"
+nvidia_driver_run_name: "NVIDIA-Linux-x86_64-{{ nvidia_driver_version }}.run"
+nvidia_driver_cache_dir: /var/cache/nvidia
+
+# sha256 of NVIDIA-Linux-x86_64-595.99.02.run — pinned for reproducibility.
+# Verified locally: sha256sum on the downloaded .run (official XFree86 URL).
+nvidia_driver_run_sha256: "e87477958bf763070549324bd5ad6c948eba6ed210e44005b3eff84940f6e1ec"
+
+# nvidia stack — other role knobs live in roles/*/defaults/main.yml

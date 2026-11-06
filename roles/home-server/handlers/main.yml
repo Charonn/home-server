@@ -6,8 +6,8 @@
     state: present
     recreate: always
     remove_orphans: yes
-  # steam-headless recreations reinstall the NVIDIA userspace libs (~2 min,
-  # from the cached .run) - normal services return in seconds, the timeout
-  # only bounds the wait
+  # async ceiling: compose-Stacks auf dem besetzten CT-102-Docker-Daemon
+  # (docker-py inspect kann unter Last Minuten laufen); normale Services
+  # kehren in Sekunden zurück, das Timeout begrenzt nur das Warten
   async: 1800
   poll: 15

@@ -4,3 +4,6 @@ proxmox_ryzen:
 ryzen_home_server:
   hosts:
     "home-server.shark-scylla.ts.net"
+steam_host:
+  hosts:
+    "ryzen.shark-scylla.ts.net"

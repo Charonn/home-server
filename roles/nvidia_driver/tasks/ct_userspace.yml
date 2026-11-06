@@ -1,0 +1,124 @@
+---
+# nvidia_driver: CT userspace overlay — ONE code path for every LXC that
+# consumes the GPU from ryzen (loop over nvidia_driver_ct_userspace_vmids in
+# tasks/main.yml; loop var = nvidia_ct_vmid: CT 102 'home-server', 110 'steam').
+#
+# The CTs see the GPU via LXC device passthrough (CT 102 via proxmox_host,
+# CT 110 manual per the steam role's READ-ONLY rule) but have NO kernel
+# module: they run a userspace overlay extracted from the SAME cached .run
+# the host installed from — version parity is structural by construction,
+# and the post-push verify enforces it hard.
+#
+# Check-mode contract (CI runs site.yml --check):
+#   * discovery (pct exec, read-only): check_mode: false — runs in CI
+#   * every push/sync task: guarded `when: not ansible_check_mode ...`
+#   * sync gate: the HOST module must equal the pin BEFORE any CT is touched.
+#     Pushing userspace newer than the host's RUNNING module breaks the CT's
+#     GPU access (libnvidia-ml <-> kernel module must match exactly). On
+#     upgrade day this intentionally leaves CTs on the old userspace until
+#     the host is rebooted on the new module and the tag re-runs.
+
+- name: NVIDIA CT userspace — discovery CT {{ nvidia_ct_vmid }} (read-only)
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  ansible.builtin.command: >-
+    pct exec {{ nvidia_ct_vmid }} -- sh -c
+    'nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null'
+  register: nvidia_ct_disc
+
+- name: NVIDIA CT userspace — gate facts (CT {{ nvidia_ct_vmid }})
+  ansible.builtin.set_fact:
+    nvidia_ct_disc_smi: "{{ nvidia_ct_disc.stdout | trim | default('none') }}"
+    # host module must equal the pin before any CT gets pushed (see header);
+    # 'none' covers no-module / discovery-rc!=0 states
+    nvidia_ct_sync_allowed: "{{ (nvidia_state.smi | default('none')) == nvidia_driver_version }}"
+    # fast path: CT already reports the pinned version — pushes skipped
+    nvidia_ct_sync_needed: "{{ (nvidia_ct_disc.stdout | trim | default('none')) != nvidia_driver_version }}"
+
+- name: NVIDIA CT userspace — report (CT {{ nvidia_ct_vmid }})
+  ansible.builtin.debug:
+    msg: >-
+      CT {{ nvidia_ct_vmid }}: driver={{ nvidia_ct_disc_smi }} |
+      pin={{ nvidia_driver_version }} |
+      host module={{ nvidia_state.smi | default('none') }} |
+      sync={{ 'skip (already on pin)'
+              if not (nvidia_ct_sync_needed | bool)
+              else ('push'
+                    if (nvidia_ct_sync_allowed | bool)
+                    else 'PENDING — host module != pin, CT left untouched until host reboot re-run') }}
+
+- name: NVIDIA CT userspace — extract userspace libs from cached .run
+  ansible.builtin.command: >-
+    bash {{ nvidia_driver_cache_dir }}/{{ nvidia_driver_run_name }}
+    --extract-only --target /var/cache/nvidia/extract-{{ nvidia_driver_version }}
+  args:
+    creates: /var/cache/nvidia/extract-{{ nvidia_driver_version }}/libnvidia-glcore.so.{{ nvidia_driver_version }}
+  changed_when: true
+  when: >-
+    not ansible_check_mode
+    and nvidia_ct_sync_allowed | bool
+    and nvidia_ct_sync_needed | bool
+
+- name: NVIDIA CT userspace — push libs into CT {{ nvidia_ct_vmid }}
+  # The .run --extract-only tree is FLAT (libnvidia-* at tree root, see the
+  # extract creates: marker). Nullglob guards unmatched patterns (old gtk
+  # libs are gone from 5xx drivers) so the loop never fails on an empty glob.
+  ansible.builtin.shell: |
+    set -e
+    shopt -s nullglob
+    files=()
+    for name in libnvidia-glcore.so* libnvidia-ml.so* libnvidia-glvkspirv* \
+                libnvidia-eglcore.so* libnvidia-ptxjitcompiler* \
+                libnvidia-allocator.so* libnvidia-cfg.so* \
+                libnvidia-encode.so* libnvidia-fbc.so* \
+                libcuda.so* libnvidia-rtcore.so* libnvidia-pkcs11*; do
+      files+=( "/var/cache/nvidia/extract-{{ nvidia_driver_version }}/$name" )
+    done
+    # Jinja-Falle (CI-Run 42282980795): in Shell-Strings darf die Sequenz
+    # offene-geschweifte-Klammer + Doppelkreuz nicht vorkommen — sie oeffnet
+    # einen Jinja-KOMMENTAR und zerstoert das Script-Argument-Splitting.
+    # Leere-Array-Check daher ueber die String-Darstellung des Arrays.
+    if [ -z "${files[*]}" ]; then
+      echo "no userspace libs matched — extraction layout changed?"; exit 2
+    fi
+    tar -czf - -C / "${files[@]#/}" \
+      | pct exec {{ nvidia_ct_vmid }} -- bash -c 'tar -xzf - -C /usr/lib/x86_64-linux-gnu/'
+  changed_when: true
+  when: >-
+    not ansible_check_mode
+    and nvidia_ct_sync_allowed | bool
+    and nvidia_ct_sync_needed | bool
+
+- name: NVIDIA CT userspace — push nvidia-smi + helpers into CT {{ nvidia_ct_vmid }}
+  ansible.builtin.shell: |
+    set -e
+    tar -C /var/cache/nvidia/extract-{{ nvidia_driver_version }} \
+      -czf - nvidia-smi nvidia-debugdump nvidia-persistenced \
+      | pct exec {{ nvidia_ct_vmid }} -- bash -c 'tar -xzf - -C /usr/bin/'
+  changed_when: true
+  when: >-
+    not ansible_check_mode
+    and nvidia_ct_sync_allowed | bool
+    and nvidia_ct_sync_needed | bool
+
+- name: NVIDIA CT userspace — ldconfig in CT {{ nvidia_ct_vmid }}
+  ansible.builtin.command: pct exec {{ nvidia_ct_vmid }} -- ldconfig
+  changed_when: true
+  when: >-
+    not ansible_check_mode
+    and nvidia_ct_sync_allowed | bool
+    and nvidia_ct_sync_needed | bool
+
+- name: NVIDIA CT userspace — parity verify CT {{ nvidia_ct_vmid }} (read-only)
+  # Hard parity gate — runs even on the skip fast path (CT already reports
+  # the pin): a CT must NEVER drift from the pinned host driver version.
+  check_mode: false
+  changed_when: false
+  failed_when: (nvidia_ct_smi_after.stdout | trim) != nvidia_driver_version
+  ansible.builtin.command: >-
+    pct exec {{ nvidia_ct_vmid }} -- nvidia-smi --query-gpu=driver_version --format=csv,noheader
+  register: nvidia_ct_smi_after
+  when: >-
+    not ansible_check_mode
+    and nvidia_ct_sync_allowed | bool
