@@ -73,13 +73,10 @@
   when: not ansible_check_mode
 
 # ---------------------------------------------------------------- nvidia userspace
-# CT has NO kernel module (nodes are host-passthrough); the userspace stack
-# is a .run-extract overlay. Idempotent re-run: only when version mismatch.
-- name: steam — NVIDIA userspace overlay install (CT 110)
-  ansible.builtin.include_tasks: nvidia_userspace.yml
-  when: >-
-    not ansible_check_mode
-    and steam_disc_smi | trim != nvidia_driver_version
+# CT has NO kernel module (nodes are host-passthrough). The userspace overlay
+# push MOVED to roles/nvidia_driver/tasks/ct_userspace.yml — one code path for
+# CT 102 + CT 110, gated on host/CT parity and asserted after the push. This
+# role keeps the discovery/report and the CT 110 app baseline only.
 
 # ---------------------------------------------------------------- units + scripts
 - name: steam — stage unit/script templates on ryzen

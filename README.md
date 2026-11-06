@@ -113,8 +113,12 @@ SSD-Pool=boot (nie).
 RTX 3070 Ti on the Proxmox host; consumers on the same version:
 - **Proxmox host (`proxmox_ryzen`)**: full driver via official `.run` installer
   (DKMS-free, self-built module), persistence mode, DRM modeset.
-- **steam CT 110 (`steam_host`)**: userspace-only extraction from the SAME
-  installer cached on the host (no own kernel module — device-node
+- **home-server LXC 102 (`ryzen_home_server`)**: userspace overlay only (no
+  kernel module) — pushed from the SAME cached installer by the `nvidia_driver`
+  role (identical version, asserted). Device passthrough (`/dev/dri`, nvidia
+  device majors, uinput/fuse) via `proxmox_host`.
+- **steam CT 110 (`steam_host`)**: userspace overlay via the same
+  `nvidia_driver` code path (no own kernel module — device-node
   passthrough). Managed via `pct exec` from the host.
 
 **Deprecated:** das steam-headless-compose-Stack auf home-server (frühere Rolle

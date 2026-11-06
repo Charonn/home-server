@@ -146,7 +146,9 @@
         line: "{{ item }}"
         state: present
       loop:
-        # fuse and uinput are required by the steam-headless container
+        # fuse + uinput: Legacy vom entfernten steam-headless-Stack (lineinfile
+        # kann nicht zurückziehen) — heute ohne Verbraucher, unschädlich; raus
+        # damit nur bei einer bewussten CT-Konfig-Rotation.
         - "lxc.mount.entry: /dev/fuse dev/fuse none bind,optional,create=file"
         - "lxc.mount.entry: /dev/uinput dev/uinput none bind,optional,create=file"
         # NVIDIA DRM nodes, via by-path symlinks so they survive GPU
@@ -168,21 +170,15 @@
       register: lxc_device_config
       notify: "Restart home-server LXC"
 
-    - name: Enable NVIDIA DRM KMS (required for Sunshine kmsgrab capture)
-      # modeset is currently N on this host -> /dev/dri gives no usable KMS
-      # device; takes effect on next Proxmox host reboot
-      ansible.builtin.copy:
-        dest: /etc/modprobe.d/nvidia-drm-modeset.conf
-        content: "options nvidia_drm modeset=1\n"
-        owner: root
-        group: root
-        mode: '0644'
-      register: nvidia_modeset_config
-
-    - name: Rebuild initramfs after modprobe change
-      ansible.builtin.command: update-initramfs -u -k all
-      when: nvidia_modeset_config.changed
-      changed_when: true
+    - name: Drop legacy nvidia-drm-modeset.conf — config owner is now the nvidia_driver role
+      # Konfig-Konsolidierung (PR #12, Goal 'identical driver + config on the
+      # host'): /etc/modprobe.d wird NUR NOCH vom nvidia_driver-Role modelliert
+      # (nvidia-drm-modeset-nvidia-driver.conf, modeset=1). Diese Datei war das
+      # alte Duplikat aus dieser Rolle (identischer Content) — zwei Quellen
+      # = Drift-Risiko. Absent ist check-mode-safe.
+      ansible.builtin.file:
+        path: /etc/modprobe.d/nvidia-drm-modeset.conf
+        state: absent
 
     - name: Load NVIDIA modules at host boot (before LXC autostart)
       # Without this, /dev/nvidia* are created lazily on first GPU access -

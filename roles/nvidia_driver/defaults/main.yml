@@ -1,8 +1,14 @@
 ---
 # nvidia_driver role — defaults. Version/URL/sha256 come from
 # group_vars/all/nvidia_driver.yml (single source of truth for the whole GPU
-# stack: ryzen host, steam CT userspace, home-server steam-headless container).
+# stack: ryzen host module+userspace, CT 102 + CT 110 userspace overlay).
 # These role defaults are fallbacks only and must not drift from group_vars.
+
+# LXC-VMIDs that get the host userspace pushed (identical-version overlay,
+# extracted from the SAME cached .run; parity asserted after each push).
+nvidia_driver_ct_userspace_vmids:
+  - "{{ home_server_lxc_vmid | default(102) }}"   # home-server LXC
+  - 110                                           # steam CT (app baseline: role steam)
 
 # Installer flags (silent install; no X config — server runs headless Xorg :99)
 nvidia_driver_install_flags: "--silent"

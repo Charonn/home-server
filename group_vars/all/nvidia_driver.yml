@@ -1,10 +1,15 @@
 ---
 # NVIDIA driver stack — SINGLE SOURCE OF TRUTH for the whole GPU stack.
-# Bump version ONLY here; the steam CT userspace and the home-server
-# steam-headless container must always match the ryzen host driver version.
-# Current pin: 595.99.02 — latest production branch with keylase NvFBC
-# patch support (595.104.02 has no NvFBC patch yet — do NOT bump until
-# patch-fbc.sh lists it, or home-server steam-headless capture breaks).
+# Bump version ONLY here; every consumer must run the identical version:
+#   - ryzen host: kernel module + userspace (.run install)
+#   - CT 102 'home-server' + CT 110 'steam': userspace overlay pushed from
+#     the SAME cached .run (roles/nvidia_driver/tasks/ct_userspace.yml)
+#
+# Pin 595.99.02 = zuletzt volle Stacks getestete Version. Der alte Bump-Guard
+# (keylase NvFBC-Patch nur bis 595.99.02 verfügbar) ist ENTFALLEN — das
+# steam-headless-Compose-Stack wurde entfernt (PR #12 Goals 2026-10-31).
+# Naechster Bump auf z.B. 595.112.07: Version + sha256 unten tauschen, Host
+# re-run, Reboot, Re-run (CT-Overlays folgen der Host-Parity-Gate).
 nvidia_driver_version: "595.99.02"
 
 # .run installer coordinates (shared by host install + CT userspace extract)

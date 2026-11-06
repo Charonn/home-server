@@ -6,3 +6,13 @@
 - name: NVIDIA driver — run install sequence
   ansible.builtin.include_tasks: install.yml
   tags: [nvidia_driver]
+
+- name: NVIDIA driver — CT userspace parity overlay (nvidia_driver_ct_userspace_vmids)
+  # One code path for EVERY GPU-consumer LXC: CT 102 'home-server' + CT 110
+  # 'steam' both get the host's cached .run userspace pushed + parity-verified.
+  # Replaces the former steam-role-internal nvidia_userspace.yml (CT 110 only).
+  ansible.builtin.include_tasks: ct_userspace.yml
+  loop: "{{ nvidia_driver_ct_userspace_vmids | default([]) }}"
+  loop_control:
+    loop_var: nvidia_ct_vmid
+  tags: [nvidia_driver]

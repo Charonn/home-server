@@ -1,8 +1,8 @@
 ---
 # home-server LXC (vmid 102) on this Proxmox host.
-# This LXC hosts several applications; the steam-headless container is one of
-# them. The container is created only if it does not exist yet - it is NEVER
-# recreated or destroyed by this playbook.
+# Hostet mehrere Anwendungen. Das steam-headless-Compose-Stack ist ENTFERNT
+# (deprecated 2026-10-15, PR #12) — GPU-Zugriff läuft als LXC-userspace-
+# Overlay direkt im CT (nvidia_driver role, CT 102 + CT 110 parity).
 home_server_lxc_vmid: 102
 home_server_lxc_hostname: "home-server"
 home_server_lxc_cores: 6

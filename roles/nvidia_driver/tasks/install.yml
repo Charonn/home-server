@@ -2,9 +2,11 @@
 # nvidia_driver: install/upgrade the host NVIDIA driver via official .run installer
 # Target: Proxmox host `proxmox_ryzen` (ryzen, RTX 3070 Ti / GA104 [10de:2482]).
 #
-# Single source of truth: nvidia_driver_version in group_vars/all/default.yml.
-# home-server (steam-headless container env) and steam (CT userspace overlay)
-# MUST run the same userspace version — never bump one without the others.
+# Single source of truth: nvidia_driver_version in group_vars/all/nvidia_driver.yml
+# (NOT default.yml). Consumers all run the IDENTICAL version: this role installs
+# the host module+userspace AND pushes the userspace overlay into the GPU
+# consumer LXCs (CT 102 'home-server', CT 110 'steam') from the same cached .run
+# (ct_userspace.yml). Never bump the pin without re-running both.
 #
 # Check-mode contract (CI runs site.yml with --check against live hosts):
 #  * all discovery tasks: check_mode: false, changed_when: false
