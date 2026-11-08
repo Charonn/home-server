@@ -26,6 +26,13 @@ encoder = nvenc
 input = x11
 evdev_device = /dev/input/event0
 
+# Client mice send many tiny hi-res wheel deltas per notch (Sunshine logged
+# scrollAmt1 [-40]/[-24] from a single scroll gesture) and the X-side scroll
+# steps several lines per notch, which reads as broken scrolling (upstream
+# LizardByte/Sunshine #1873/#4933). With this disabled, Sunshine aggregates
+# wheel deltas to the standard 120-unit notch: one scroll step per click.
+high_resolution_scrolling = disabled
+
 # Disable the system tray: its "Playing <app>" desktop notification (via
 # D-Bus org.freedesktop.Notifications) blocks the RTSP thread for the
 # notification's display timeout (~25s), delaying the ANNOUNCE response
