@@ -130,6 +130,15 @@
   when: nvidia_driver_drm_modeset | bool
   notify: nvidia — update initramfs
 
+# ansible.builtin.expect needs the pexpect PYTHON LIBRARY on the TARGET host
+# (Proxmox = Debian: python3-pexpect). Without it the installer task fatals
+# with "No module named 'pexpect'" even though ansible-core is present.
+- name: NVIDIA driver — install pexpect for the expect module (target host)
+  ansible.builtin.apt:
+    name: python3-pexpect
+    state: present
+  when: not ansible_check_mode
+
 # .run --silent builds the module for the RUNNING kernel in place; replaces
 # the existing 580 install cleanly. Does NOT use DKMS (see defaults).
 - name: NVIDIA driver — run installer (this upgrades the driver)
@@ -143,6 +152,8 @@
   when: not ansible_check_mode
   changed_when: true
   notify: nvidia — update initramfs
+  # --allow-installation-with-running-driver: the running old module is NOT
+  # unloaded/swapped here — reboot required (see verify + debug + reminder).
 
 - name: NVIDIA driver — verify post-install driver version
   check_mode: false
@@ -153,6 +164,17 @@
   failed_when: >-
     (nvidia_smi_after.stdout | trim) != nvidia_driver_version
     and nvidia_sha is not skipped
+    and nvidia_state.loaded | default('no') != 'yes'
+
+- name: NVIDIA driver — upgrade done, reboot still pending (version check deferred)
+  # In-place upgrade: the OLD module stays loaded until reboot, so nvidia-smi
+  # reports the old version or NVML errors with a userspace/module mismatch.
+  # Expected — the version assertion is only enforced on fresh installs above.
+  ansible.builtin.debug:
+    msg: >-
+      Installed userspace {{ nvidia_driver_version }} while the kernel module
+      from {{ nvidia_state.smi | default('?') }} is still running. Reboot the
+      host and re-run this tag afterwards to verify the module swapped.
 
 - name: NVIDIA driver — persistence daemon
   ansible.builtin.systemd_service:
