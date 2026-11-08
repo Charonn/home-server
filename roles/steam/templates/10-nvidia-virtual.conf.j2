@@ -51,6 +51,10 @@ Section "Screen"
     Device "Device0"
     Monitor "Monitor0"
     DefaultDepth 24
+    # NVIDIA ignores Monitor/PreferredMode on the dummy HDMI monitor and falls
+    # back to its default (1024x768, 4:3 -> streamed as a square picture).
+    # MetaModes is the driver's own startup-mode mechanism — pin 1080p.
+    Option "MetaModes" "HDMI-0: 1920x1080_60 +0+0"
     SubSection "Display"
         Depth 24
         Virtual 1920 1080
