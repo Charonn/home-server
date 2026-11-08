@@ -82,6 +82,10 @@ done
         echo '    Option "Device" "/dev/input/nonexistent"'
     fi
     echo '    Option "CoreKeyboard" "true"'
+    # German keyboard layout for the streamed session (Moonlight virtual keys
+    # are layout-agnostic; the host XKB decides what the keys produce).
+    echo '    Option "XkbModel" "pc105"'
+    echo '    Option "XkbLayout" "de"'
     echo 'EndSection'
 } > "$CONF"
 
