@@ -16,7 +16,14 @@
 
 capture = x11
 encoder = nvenc
-input = auto
+# input = x11: keyboard+mouse injected via XTest. The evdev/uinput path for
+# mouse+keyboard fails in this CT — Xorg (root, no logind session) gets ENXIO
+# opening the mknod'd passthrough nodes that root can open fine moments later,
+# and no udev hotplug fallback attaches them (sysfs is read-only, so udevadm
+# trigger cannot re-emit device events). XTest needs none of that and the
+# steam desktop on :99 always has the XTest cores attached. Gamepads keep
+# their own uinput path.
+input = x11
 evdev_device = /dev/input/event0
 
 # Disable the system tray: its "Playing <app>" desktop notification (via
