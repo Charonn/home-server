@@ -102,3 +102,22 @@ steam_sunshine_csrf_origins:
   - "https://100.68.188.59:47990"
   - "https://0.0.0.0:47990"
   - "https://[::]:47990"
+# --- GE-Proton10 pin (wine 10) + session hygiene ---------------------------
+# Proton Experimental 11.0-20261027b (auto-updated into the CT on 2026-11-06)
+# breaks wine's desktop host inside a proton session: explorer.exe
+# SIGSEGV-loops in winex11 event processing and every Proton app freezes at
+# its first display-driver syscall (Unity splash hang). Raw `wine` from the
+# same build works in the same prefix, so the poison is the proton session
+# layer. Workaround: install GE-Proton10-34 (wine 10) and point the
+# 'steamapps/common/Proton - Experimental' PATH at it — Steam Play's default
+# selection then resolves into GE wine without any per-game Steam config.
+# Flip steam_ge_proton_symlink: false once upstream ships a fixed build.
+steam_ge_proton_cache_dir: /var/cache/ge-proton
+steam_ge_proton_version: "GE-Proton10-34"
+steam_ge_proton_url: "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{{ steam_ge_proton_version }}/{{ steam_ge_proton_version }}.tar.gz"
+# sha512 of GE-Proton10-34.tar.gz (cross-checked against the release .sha512sum
+# and the tarball actually deployed and gzip-verified on CT 110)
+steam_ge_proton_sha512: "9fd0b2cfbd501c0b5c892239c392c7283a029b5e5d5a77d3f85b0ce190d555456241a18eebca16b53f094b403499201c13550a3f0b9b365e1a5eb5737cbb7303"
+steam_compatibility_tools_dir: /home/opencode/.local/share/Steam/compatibilitytools.d
+steam_steamapps_common_dir: /home/opencode/.local/share/Steam/steamapps/common
+steam_ge_proton_symlink: true

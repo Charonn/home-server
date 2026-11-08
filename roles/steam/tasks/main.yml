@@ -72,6 +72,14 @@
   ansible.builtin.include_tasks: pkgs.yml
   when: not ansible_check_mode
 
+# ---------------------------------------------------------------- GE-Proton pin
+# GE-Proton10-34 (wine 10) installed + 'Proton - Experimental' path pointed at
+# it, plus wine-session leftovers cleared pre-steam via
+# wine-session-cleanup.sh. See defaults/main.yml "GE-Proton10 pin" for why.
+- name: steam — GE-Proton10 pin (wine 10) + wine session hygiene
+  ansible.builtin.include_tasks: ge-proton.yml
+  when: not ansible_check_mode
+
 # ---------------------------------------------------------------- nvidia userspace
 # CT has NO kernel module (nodes are host-passthrough). The userspace overlay
 # push MOVED to roles/nvidia_driver/tasks/ct_userspace.yml — one code path for
@@ -79,6 +87,13 @@
 # role keeps the discovery/report and the CT 110 app baseline only.
 
 # ---------------------------------------------------------------- units + scripts
+- name: steam — staging dir on ryzen (missing on any host where it was never created)
+  ansible.builtin.file:
+    path: "{{ steam_units_staging_dir }}"
+    state: directory
+    mode: '0755'
+  when: not ansible_check_mode
+
 - name: steam — stage unit/script templates on ryzen
   ansible.builtin.template:
     src: "{{ item.src }}"
@@ -123,6 +138,8 @@
       dest: "{{ steam_units_staging_dir }}/apps.json"
     - src: 10-nvidia-virtual.conf.j2
       dest: "{{ steam_units_staging_dir }}/10-nvidia-virtual.conf"
+    - src: wine-session-cleanup.sh.j2
+      dest: "{{ steam_units_staging_dir }}/wine-session-cleanup.sh"
 
 - name: steam — install units/scripts into CT 110 (pct push)
   ansible.builtin.command: >
@@ -143,6 +160,7 @@
     - { stage: setup-input-dev.sh,       dest_ct: /usr/local/bin/setup-input-dev.sh }
     - { stage: cuda-check,               dest_ct: /usr/local/bin/cuda-check }
     - { stage: 10-nvidia-virtual.conf,   dest_ct: /etc/X11/xorg.conf.d/10-nvidia-virtual.conf }
+    - { stage: wine-session-cleanup.sh,  dest_ct: /usr/local/bin/wine-session-cleanup.sh }
   loop_control:
     label: "{{ item.dest_ct }}"
   when: not ansible_check_mode
@@ -187,6 +205,7 @@
     /usr/local/bin/start-x-compositor.sh
     /usr/local/bin/setup-input-dev.sh
     /usr/local/bin/cuda-check
+    /usr/local/bin/wine-session-cleanup.sh
   when: not ansible_check_mode
   changed_when: true
 
@@ -212,9 +231,18 @@
   changed_when: true
 
 - name: steam — restart stack (only when staged/unit changes happened)
+  # Dependency order WITHOUT touching xorg-virtual directly: input-dev-setup
+  # (Requires=xorg-virtual) regenerates the evdev conf and restarts X itself
+  # via ExecStartPost; an outer X restart would deadlock the unit (two restart
+  # jobs for xorg-virtual in one transaction). Serial because the grouped
+  # single-transaction version TERM-killed input-dev-setup mid-flight.
   ansible.builtin.command: >-
-    pct exec 110 -- systemctl restart
-    xorg-virtual.service input-dev-setup.service x-compositor.service sunshine.service steam-headless.service
+    pct exec 110 -- bash -c
+    'systemctl reset-failed xorg-virtual input-dev-setup x-compositor sunshine steam-headless;
+     systemctl restart sunshine;
+     systemctl restart input-dev-setup;
+     sleep 3;
+     systemctl restart x-compositor steam-headless'
   when: >-
     not ansible_check_mode
     and steam_staging_result.changed | default(false)
