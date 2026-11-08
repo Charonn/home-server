@@ -16,8 +16,22 @@
 
 capture = x11
 encoder = nvenc
-input = auto
+# input = x11: keyboard+mouse injected via XTest. The evdev/uinput path for
+# mouse+keyboard fails in this CT — Xorg (root, no logind session) gets ENXIO
+# opening the mknod'd passthrough nodes that root can open fine moments later,
+# and no udev hotplug fallback attaches them (sysfs is read-only, so udevadm
+# trigger cannot re-emit device events). XTest needs none of that and the
+# steam desktop on :99 always has the XTest cores attached. Gamepads keep
+# their own uinput path.
+input = x11
 evdev_device = /dev/input/event0
+
+# Client mice send many tiny hi-res wheel deltas per notch (Sunshine logged
+# scrollAmt1 [-40]/[-24] from a single scroll gesture) and the X-side scroll
+# steps several lines per notch, which reads as broken scrolling (upstream
+# LizardByte/Sunshine #1873/#4933). With this disabled, Sunshine aggregates
+# wheel deltas to the standard 120-unit notch: one scroll step per click.
+high_resolution_scrolling = disabled
 
 # Disable the system tray: its "Playing <app>" desktop notification (via
 # D-Bus org.freedesktop.Notifications) blocks the RTSP thread for the

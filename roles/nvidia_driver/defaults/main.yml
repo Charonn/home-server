@@ -11,7 +11,21 @@ nvidia_driver_ct_userspace_vmids:
   - 110                                           # steam CT (app baseline: role steam)
 
 # Installer flags (silent install; no X config — server runs headless Xorg :99)
-nvidia_driver_install_flags: "--silent"
+# --silent: non-interactive (no-questions, ui=none).
+# --allow-installation-with-running-driver: 580→595 in-place upgrade happens
+#   WHILE the old kernel module is still loaded (host runs persistenced + GPU
+#   LXCs; unloading would need a full consumer shutdown). Without this flag the
+#   installer asks 'continue and skip the sanity checks?' and --silent answers
+#   the DEFAULT 'Abort installation' → rc=1. With it, the default becomes
+#   'Continue installation' and kernel-module load tests are skipped (reboot
+#   still required to actually swap the module — see install.yml reminder).
+# --kernel-module-type=open: pins the 'Multiple kernel module types are
+#   available?' question to MIT/GPL (open) — matches what the host already runs
+#   and removes silent-mode answer variance.
+nvidia_driver_install_flags: >-
+  --silent
+  --allow-installation-with-running-driver
+  --kernel-module-type=open
 # DKMS integration: the .run ships its own module; keep DKMS off to avoid
 # double-module states with the distro packages (535 stack is still installed).
 nvidia_driver_dkms: false

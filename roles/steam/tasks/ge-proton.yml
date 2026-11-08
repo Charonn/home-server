@@ -1,0 +1,65 @@
+---
+# steam role — GE-Proton10 pin + wine session hygiene, CT 110.
+# See defaults/main.yml "GE-Proton10 pin" block for the why.
+# All steps run on ryzen and drop into CT 110 via pct exec.
+
+# tarball sits in the CT cache; download only when absent or hash-drifted,
+# then ALWAYS re-verify (protects against a silently truncated download)
+- name: steam — GE-Proton tarball in CT cache (idempotent download)
+  ansible.builtin.command: >-
+    pct exec 110 -- bash -c
+    'mkdir -p {{ steam_ge_proton_cache_dir }};
+     T={{ steam_ge_proton_cache_dir }}/{{ steam_ge_proton_version }}.tar.gz;
+     if [ -f "$T" ] && sha512sum -c <<< "{{ steam_ge_proton_sha512 }}  $T" >/dev/null 2>&1; then
+       echo cached;
+     else
+       curl -fsSL --retry 3 -o "$T" {{ steam_ge_proton_url }} && echo downloaded;
+     fi'
+  when: not ansible_check_mode
+  register: steam_ge_dl
+  changed_when: "'cached' not in steam_ge_dl.stdout"
+
+- name: steam — GE-Proton tarball checksum (always re-verified)
+  ansible.builtin.command: >-
+    pct exec 110 -- bash -c
+    'cd {{ steam_ge_proton_cache_dir }} &&
+     echo "{{ steam_ge_proton_sha512 }}  {{ steam_ge_proton_version }}.tar.gz" | sha512sum -c -'
+  when: not ansible_check_mode
+  changed_when: false
+
+- name: steam — extract GE-Proton into compatibilitytools.d
+  ansible.builtin.command: >-
+    pct exec 110 -- bash -c
+    'T={{ steam_compatibility_tools_dir }}/{{ steam_ge_proton_version }};
+     if [ -x "$T/proton" ]; then
+       echo extracted;
+     else
+       mkdir -p {{ steam_compatibility_tools_dir }} &&
+       tar -xzf {{ steam_ge_proton_cache_dir }}/{{ steam_ge_proton_version }}.tar.gz -C {{ steam_compatibility_tools_dir }} &&
+       chown -R opencode:opencode "$T" &&
+       echo extracted-fresh;
+     fi'
+  when: not ansible_check_mode
+  register: steam_ge_ext
+  changed_when: "'extracted-fresh' in steam_ge_ext.stdout"
+
+# Steam Play's default (proton-experimental) resolves through this symlink.
+# The broken upstream build is preserved ONCE as *.upstream-broken.
+- name: steam — point 'Proton - Experimental' path at GE-Proton
+  ansible.builtin.command: >-
+    pct exec 110 -- bash -c
+    'D={{ steam_steamapps_common_dir }}"/Proton - Experimental";
+     G={{ steam_compatibility_tools_dir }}/{{ steam_ge_proton_version }};
+     if [ -h "$D" ] && [ "$(readlink "$D")" = "$G" ]; then
+       echo synced;
+     else
+       if [ -d "$D" ] && [ ! -h "$D" ]; then
+         mv "$D" "{{ steam_steamapps_common_dir }}"/"Proton - Experimental.upstream-broken";
+       fi;
+       ln -sfn "$G" "$D" && echo relinked;
+     fi'
+  when: >-
+    not ansible_check_mode
+    and steam_ge_proton_symlink | bool
+  register: steam_ge_link
+  changed_when: "'synced' not in steam_ge_link.stdout"

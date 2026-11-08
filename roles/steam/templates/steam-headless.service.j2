@@ -15,6 +15,7 @@ Environment="STEAM_RUNTIME=1"
 Environment="SDL_AUDIODRIVER=pulse"
 Environment="PULSE_SERVER=unix:/run/user/1001/pulse/native"
 ExecStartPre=/bin/sleep 10
+ExecStartPre={{ steam_bin_dir }}/wine-session-cleanup.sh
 ExecStart={{ steam_bin_dir }}/start-steam-headless.sh
 Restart=always
 RestartSec=10

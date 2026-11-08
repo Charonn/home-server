@@ -10,6 +10,20 @@ set -u
 
 CONF=/etc/X11/xorg.conf.d/99-sunshine-input.conf
 
+# Sunshine creates its uinput devices at server startup; when the stack is
+# restarted in one go, this script can run before they exist (the race that
+# wrote '/dev/input/nonexistent'). Wait up to 15s for the passthrough devices.
+waited=0
+while [ "$waited" -lt 15 ]; do
+    if grep -ql passthrough /sys/class/input/event*/device/name 2>/dev/null; then
+        break
+    fi
+    sleep 2
+    waited=$((waited + 2))
+done
+
+echo "waited ${waited}s for sunshine uinput devices"
+
 mkdir -p /dev/input
 chmod 755 /dev/input
 
@@ -68,6 +82,10 @@ done
         echo '    Option "Device" "/dev/input/nonexistent"'
     fi
     echo '    Option "CoreKeyboard" "true"'
+    # German keyboard layout for the streamed session (Moonlight virtual keys
+    # are layout-agnostic; the host XKB decides what the keys produce).
+    echo '    Option "XkbModel" "pc105"'
+    echo '    Option "XkbLayout" "de"'
     echo 'EndSection'
 } > "$CONF"
 

@@ -31,4 +31,7 @@ xfsettingsd --display {{ steam_x_display }} >/tmp/xfsettingsd.log 2>&1 &
 # Start Picom compositor in the foreground so systemd tracks it.
 # glx backend: GPU-rendered (OpenGL) window content from Steam is read back and
 # composited onto the root window for capture (x11vnc / Sunshine x11grab).
-exec picom --backend glx --no-vsync --no-use-damage --log-level warn
+# Click-through context menus with picom --no-use-damage on NVIDIA: the menu
+# paints at an offset from its true position and clicks land on the window
+# underneath. Damage tracking must stay ON for correct hit-testing.
+exec picom --backend glx --no-vsync --log-level warn

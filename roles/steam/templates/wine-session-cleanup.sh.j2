@@ -1,0 +1,19 @@
+#!/bin/bash
+# Managed by ansible (role steam) — do not edit.
+# ExecStartPre of steam-headless.service: clears leftovers of uncleanly
+# terminated Proton sessions. Orphaned 'explorer.exe /desktop' desktop hosts
+# keep SIGSEGV-spinning at ~1 CPU (a crashed desktop host poisons every later
+# wine session: the game's display-driver init waits on the dead host
+# forever), and stale /dev/shm/wine-*-fsync files survive kill -9. Runs
+# BEFORE any wine session is live, so killing these is safe by construction.
+pkill -9 -f 'C:.windows.system32.* explorer.exe /desktop' 2>/dev/null
+pkill -9 -f 'C:.windows.system32.services.exe' 2>/dev/null
+pkill -9 -f 'C:.windows.system32.plugplay.exe' 2>/dev/null
+pkill -9 -f 'C:.windows.system32.svchost.exe' 2>/dev/null
+pkill -9 -f 'C:.windows.system32.rpcss.exe' 2>/dev/null
+pkill -9 -f 'C:.windows.system32.steam.exe' 2>/dev/null
+pkill -9 -f 'winedevice.exe' 2>/dev/null
+pkill -9 -f 'xalia.exe' 2>/dev/null
+pkill -9 -x wineserver 2>/dev/null
+rm -f /dev/shm/wine-*-fsync 2>/dev/null
+exit 0
